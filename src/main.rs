@@ -36,12 +36,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
+    let metrics = scryarr::metrics::Metrics::new();
     let state = AppState {
-        scryer: ScryerClient::new(&config.scryer_url, http.clone()),
+        scryer: ScryerClient::new(&config.scryer_url, http.clone()).with_metrics(metrics.clone()),
         http,
         config: Arc::new(config),
         store,
         libraries: Default::default(),
+        metrics,
     };
     axum::serve(listener, app(state))
         .with_graceful_shutdown(shutdown())

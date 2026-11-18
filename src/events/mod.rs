@@ -23,6 +23,11 @@ fn acknowledged(delivered: usize) -> Response {
     Json(json!({ "delivered": delivered })).into_response()
 }
 
+fn dropped(state: &AppState) -> Response {
+    state.metrics.record_delivery("dropped");
+    acknowledged(0)
+}
+
 fn parse_facet(s: &str) -> Option<Facet> {
     match s.to_ascii_uppercase().as_str() {
         "MOVIE" => Some(Facet::Movie),
@@ -48,14 +53,14 @@ async fn ingest(State(state): State<AppState>, Path(token): Path<String>, body: 
         }
     } else {
         let Some(title) = &req.title else {
-            return acknowledged(0);
+            return dropped(&state);
         };
         let (Some(facet), Some(path)) = (parse_facet(&title.facet), title.path.as_deref()) else {
-            return acknowledged(0);
+            return dropped(&state);
         };
         let library = match state.store.library_for_path(facet, path).await {
             Ok(Some(l)) => l,
-            Ok(None) => return acknowledged(0),
+            Ok(None) => return dropped(&state),
             Err(e) => return internal(e),
         };
         match state.store.notifications(&library).await {
@@ -68,16 +73,22 @@ async fn ingest(State(state): State<AppState>, Path(token): Path<String>, body: 
     let mut retryable = false;
     for n in &targets {
         let Some(payload) = translate::to_tofa(&req, n.flavor) else {
+            state.metrics.record_delivery("dropped");
             continue;
         };
         match tofa::deliver(&state.http, n, &payload).await {
-            Ok(()) => delivered += 1,
+            Ok(()) => {
+                delivered += 1;
+                state.metrics.record_delivery("ok");
+            }
             Err(DeliveryError::Retryable(e)) => {
                 tracing::warn!(notification_id = n.id, error = %e, "tofa delivery failed, will be retried");
                 retryable = true;
+                state.metrics.record_delivery("retryable");
             }
             Err(DeliveryError::Rejected(status)) => {
                 tracing::warn!(notification_id = n.id, ?status, "tofa rejected event");
+                state.metrics.record_delivery("rejected");
             }
         }
     }

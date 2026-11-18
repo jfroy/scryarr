@@ -21,11 +21,13 @@ pub async fn test_state_with(scryer_url: &str) -> AppState {
     })
     .unwrap();
     let http = reqwest::Client::new();
+    let metrics = scryarr::metrics::Metrics::new();
     AppState {
-        scryer: ScryerClient::new(&config.scryer_url, http.clone()),
+        scryer: ScryerClient::new(&config.scryer_url, http.clone()).with_metrics(metrics.clone()),
         http,
         config: Arc::new(config),
         store: Store::open_in_memory().await.unwrap(),
         libraries: Default::default(),
+        metrics,
     }
 }

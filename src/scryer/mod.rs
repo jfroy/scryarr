@@ -5,6 +5,7 @@ use graphql_client::{GraphQLQuery, Response};
 use url::Url;
 
 use crate::error::AppError;
+use crate::metrics::Metrics;
 
 pub use views::{CollectionKind, EpisodeView, MediaFile, Season, Title, TitleDetail};
 
@@ -23,13 +24,23 @@ impl std::fmt::Debug for ApiKey {
 pub struct ScryerClient {
     endpoint: Url,
     http: reqwest::Client,
+    metrics: Option<Metrics>,
 }
 
 impl ScryerClient {
     pub fn new(base: &Url, http: reqwest::Client) -> Self {
         let endpoint = Url::parse(&format!("{}/graphql", base.as_str().trim_end_matches('/')))
             .expect("base url plus /graphql is a valid url");
-        Self { endpoint, http }
+        Self {
+            endpoint,
+            http,
+            metrics: None,
+        }
+    }
+
+    pub fn with_metrics(mut self, metrics: Metrics) -> Self {
+        self.metrics = Some(metrics);
+        self
     }
 
     pub async fn run<Q: GraphQLQuery>(
@@ -37,7 +48,7 @@ impl ScryerClient {
         key: &ApiKey,
         vars: Q::Variables,
     ) -> Result<Q::ResponseData, AppError> {
-        self.send::<Q>(key, Q::build_query(vars), false).await
+        self.counted(self.send::<Q>(key, Q::build_query(vars), false).await)
     }
 
     /// Like `run`, but drops every null variable before sending. Generated input
@@ -48,7 +59,14 @@ impl ScryerClient {
         key: &ApiKey,
         vars: Q::Variables,
     ) -> Result<Q::ResponseData, AppError> {
-        self.send::<Q>(key, Q::build_query(vars), true).await
+        self.counted(self.send::<Q>(key, Q::build_query(vars), true).await)
+    }
+
+    fn counted<T>(&self, result: Result<T, AppError>) -> Result<T, AppError> {
+        if let (Err(e), Some(m)) = (&result, &self.metrics) {
+            m.record_scryer_error(e);
+        }
+        result
     }
 
     async fn send<Q: GraphQLQuery>(

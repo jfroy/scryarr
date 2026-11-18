@@ -7,11 +7,18 @@ use super::Conn;
 use crate::AppState;
 use crate::error::AppError;
 use crate::store::Notification;
-use crate::tofa::{self, TofaPayload};
+use crate::tofa::{self, DeliveryError, TofaPayload};
 
 async fn send_test(state: &AppState, n: &Notification) {
-    if let Err(e) = tofa::deliver(&state.http, n, &TofaPayload::event("Test")).await {
-        tracing::warn!(notification_id = n.id, url = %n.url, error = %e, "tofa test delivery failed");
+    match tofa::deliver(&state.http, n, &TofaPayload::event("Test")).await {
+        Ok(()) => state.metrics.record_delivery("ok"),
+        Err(e) => {
+            state.metrics.record_delivery(match e {
+                DeliveryError::Retryable(_) => "retryable",
+                DeliveryError::Rejected(_) => "rejected",
+            });
+            tracing::warn!(notification_id = n.id, url = %n.url, error = %e, "tofa test delivery failed");
+        }
     }
 }
 

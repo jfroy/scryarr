@@ -7,10 +7,20 @@ use super::model::{QualityProfile, RootFolder, SystemStatus, Tag};
 use crate::AppState;
 use crate::domain::Flavor;
 use crate::error::AppError;
-use crate::scryer::ops::{QualityProfiles, TagDefinitions, quality_profiles, tag_definitions};
+use crate::scryer::ops::{
+    QualityProfiles, ScryerVersion, TagDefinitions, quality_profiles, scryer_version,
+    tag_definitions,
+};
 use crate::store::IdKind;
 
-pub async fn status(conn: Conn) -> Json<SystemStatus> {
+pub async fn status(State(st): State<AppState>, conn: Conn) -> Json<SystemStatus> {
+    if let Ok(v) = st
+        .scryer
+        .run::<ScryerVersion>(&conn.key, scryer_version::Variables)
+        .await
+    {
+        st.metrics.observe_scryer_version(&v.scryer_version);
+    }
     let (app_name, version) = match conn.flavor {
         Flavor::Radarr => ("Radarr", "5.0.0.0"),
         Flavor::Sonarr => ("Sonarr", "4.0.0.0"),
