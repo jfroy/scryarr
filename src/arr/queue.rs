@@ -362,10 +362,11 @@ async fn history_for(
             continue;
         }
         let key = format!(
-            "{}|{}|{}",
+            "{}|{}|{}|{}",
             title.id,
             h.client_id.as_deref().unwrap_or_default(),
-            h.download_id.as_deref().unwrap_or_default()
+            h.download_id.as_deref().unwrap_or_default(),
+            h.id
         );
         let id = st
             .store
@@ -428,7 +429,7 @@ pub async fn history_failed(
         .scryer_key(IdKind::History, &conn.library_id, id)
         .await?
         .ok_or_else(not_found)?;
-    let mut parts = key.splitn(3, '|');
+    let mut parts = key.splitn(4, '|');
     let (Some(title_id), Some(client_id), Some(download_id)) =
         (parts.next(), parts.next(), parts.next())
     else {

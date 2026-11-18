@@ -207,6 +207,10 @@ async fn history_failed_resolves_client_type() {
             "id": "h1", "titleId": "T1", "episodeId": null, "eventType": "GRABBED",
             "sourceTitle": "Rel", "quality": null, "downloadId": "dl-x", "clientId": "c9",
             "occurredAt": "2024-02-02T00:00:00Z"
+        }, {
+            "id": "h2", "titleId": "T1", "episodeId": null, "eventType": "IMPORTED",
+            "sourceTitle": "Rel", "quality": null, "downloadId": "dl-x", "clientId": "c9",
+            "occurredAt": "2024-02-03T00:00:00Z"
         }]}}}),
     )
     .await;
@@ -244,7 +248,9 @@ async fn history_failed_resolves_client_type() {
     assert_eq!(v[0]["movieId"], 11);
     assert_eq!(v[0]["downloadId"], "dl-x");
     assert_eq!(v[0]["date"], "2024-02-02T00:00:00Z");
-    let id = v[0]["id"].as_i64().unwrap();
+    assert_eq!(v[1]["eventType"], "downloadFolderImported");
+    assert_ne!(v[0]["id"], v[1]["id"]);
+    let id = v[1]["id"].as_i64().unwrap();
 
     let (s, _) = send(
         &state,
