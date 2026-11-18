@@ -98,7 +98,7 @@ fn detail_resp() -> Value {
             {"id":"e21","seasonNumber":"2","episodeNumber":"1","title":"Three","airDate":"2021-01-01","monitored":true,"mediaFiles":[]},
             {"id":"e2x","seasonNumber":"2","episodeNumber":"x","title":"Bad","airDate":null,"monitored":true,"mediaFiles":[]}]}
     ]));
-    o.insert("mediaFiles".into(), json!([{"id":"f11","filePath":"/tv/s1e1.mkv","episodeId":"e11"},{"id":"orphan","filePath":"/tv/o.mkv","episodeId":null}]));
+    o.insert("mediaFiles".into(), json!([{"id":"f11","filePath":"/tv/s1e1.mkv","episodeId":"e11","sizeBytes":4096},{"id":"orphan","filePath":"/tv/o.mkv","episodeId":null,"sizeBytes":1}]));
     json!({"data": {"title": t}})
 }
 
@@ -237,6 +237,7 @@ async fn episodefile_list_and_get() {
     assert_eq!(files.len(), 1);
     assert_eq!(files[0]["seasonNumber"], 1);
     assert_eq!(files[0]["path"], "/tv/s1e1.mkv");
+    assert_eq!(files[0]["size"], 4096);
     assert_eq!(files[0]["seriesId"], 81189);
     let id = files[0]["id"].as_i64().unwrap();
     let (st, one) = send(
@@ -248,6 +249,7 @@ async fn episodefile_list_and_get() {
     .await;
     assert_eq!(st, StatusCode::OK);
     assert_eq!(one["id"], id);
+    assert_eq!(one["size"], 4096);
     let (_, eps) = send(
         &state,
         Method::GET,

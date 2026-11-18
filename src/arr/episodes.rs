@@ -159,7 +159,7 @@ async fn episode_file(
         series_id,
         season_number: sn,
         path: f.path.clone(),
-        size: 0,
+        size: f.size_bytes,
     }))
 }
 

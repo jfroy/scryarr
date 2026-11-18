@@ -148,7 +148,7 @@ async fn title_detail_converts_to_views() {
             "episodesOwned":1,"episodesMonitored":2,"episodesTotal":2,
             "episodes":[{"id":"e1","seasonNumber":"1","episodeNumber":"1","title":"Pilot",
                 "airDate":"2020-01-01","monitored":true,"mediaFiles":[{"id":"f1","filePath":"/tv/a.mkv"}]}]}],
-        "mediaFiles":[{"id":"f1","filePath":"/tv/a.mkv","episodeId":"e1"}]
+        "mediaFiles":[{"id":"f1","filePath":"/tv/a.mkv","episodeId":"e1","sizeBytes":123}]
     });
     Mock::given(method("POST"))
         .and(path("/graphql"))
@@ -173,4 +173,5 @@ async fn title_detail_converts_to_views() {
     assert_eq!(v.seasons[0].kind, CollectionKind::Season);
     assert_eq!(v.seasons[0].episodes[0].media_file_ids, vec!["f1"]);
     assert_eq!(v.media_files[0].episode_id.as_deref(), Some("e1"));
+    assert_eq!(v.media_files[0].size_bytes, 123);
 }

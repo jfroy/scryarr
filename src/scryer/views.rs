@@ -44,6 +44,7 @@ pub struct MediaFile {
     pub id: String,
     pub path: String,
     pub episode_id: Option<String>,
+    pub size_bytes: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +173,7 @@ impl From<title_detail::TitleDetailTitle> for TitleDetail {
                 id: m.id,
                 path: m.file_path,
                 episode_id: m.episode_id,
+                size_bytes: m.size_bytes,
             })
             .collect();
         TitleDetail {
