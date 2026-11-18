@@ -32,11 +32,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
     cargo build --release --locked --target "$(cat /rust-target)" && \
-    install -D "target/$(cat /rust-target)/release/scryarr" /out/scryarr
+    install -D "target/$(cat /rust-target)/release/scryarr" /out/scryarr && \
+    mkdir -p /out/data
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS runtime
 
 COPY --from=build /out/scryarr /scryarr
+COPY --from=build --chown=1000:1000 /out/data /data
 
 ENV SCRYARR_DATA_DIR=/data
 VOLUME ["/data"]

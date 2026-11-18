@@ -39,7 +39,7 @@ scryer pushes events to the bridge, which forwards them to the tofa webhooks tof
 
 1. In scryer, install the Generic Webhook notification plugin from the first-party catalog.
 2. Create a channel with method `POST`, content type `application/json` and URL
-   `http://<host>:8080/scryer/events/<token>`, where `<token>` equals `SCRYARR_EVENTS_TOKEN`.
+   `http://<host>:8080/scryer/events/<token>`, where `<token>` equals `SCRYER_EVENTS_TOKEN`.
    A wrong token returns 404.
 3. Subscribe it to grab, download, import complete, upgrade, rename, title added, title deleted and
    file deleted.
