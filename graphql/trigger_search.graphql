@@ -1,0 +1,1 @@
+mutation TriggerSearch($input: TriggerAcquisitionSearchInput!) { triggerAcquisitionSearch(input: $input) { id } }

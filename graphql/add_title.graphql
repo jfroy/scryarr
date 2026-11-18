@@ -1,0 +1,8 @@
+mutation AddTitle($input: AddTitleInput!) { addTitle(input: $input) { title { ...TitleFields } reusedExistingTitle } }
+
+fragment TitleFields on TitlePayload {
+  id libraryId name facet monitored year slug overview tags
+  externalIds { source value }
+  imdbId qualityProfileId rootFolderPath minAvailability monitorType sizeBytes
+  episodesOwned episodesMonitored episodesTotal createdAt posterUrl
+}

@@ -1,0 +1,1 @@
+query Libraries($facet: MediaFacetValue) { libraries(facet: $facet, permission: null) { id facet name roots { path isDefault } qualityProfileId requestQualityProfileIds } }

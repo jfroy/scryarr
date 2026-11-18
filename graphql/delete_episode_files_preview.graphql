@@ -1,0 +1,1 @@
+query DeleteEpisodeFilesPreview($input: DeleteEpisodeFilesPreviewInput!) { deleteEpisodeFilesPreview(input: $input) { preview { fingerprint requiresTypedConfirmation typedConfirmationPrompt } fileCount } }

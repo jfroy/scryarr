@@ -1,0 +1,1 @@
+query MetadataSeries($tvdbId: String) { metadataSeries(input: { tvdbId: $tvdbId, includeEpisodes: false }) { name slug year overview posterUrl tvdbId tmdbId network seasons { number label episodeType tvdbId tmdbId } } }

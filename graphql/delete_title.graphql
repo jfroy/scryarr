@@ -1,0 +1,1 @@
+mutation DeleteTitle($input: DeleteTitleInput!) { deleteTitle(input: $input) { id } }

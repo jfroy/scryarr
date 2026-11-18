@@ -1,0 +1,1 @@
+mutation DeleteEpisodeFiles($input: DeleteEpisodeFilesInput!) { deleteEpisodeFiles(input: $input) { acceptedFileIds } }

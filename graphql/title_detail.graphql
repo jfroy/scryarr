@@ -1,0 +1,8 @@
+query TitleDetail($id: ID!) { title(id: $id) { ...TitleFields collections { collectionType collectionIndex monitored episodesOwned episodesMonitored episodesTotal episodes { id seasonNumber episodeNumber title airDate monitored mediaFiles { id filePath } } } mediaFiles { id filePath episodeId } } }
+
+fragment TitleFields on TitlePayload {
+  id libraryId name facet monitored year slug overview tags
+  externalIds { source value }
+  imdbId qualityProfileId rootFolderPath minAvailability monitorType sizeBytes
+  episodesOwned episodesMonitored episodesTotal createdAt posterUrl
+}

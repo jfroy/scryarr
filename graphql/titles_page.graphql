@@ -1,0 +1,8 @@
+query TitlesPage($facet: MediaFacetValue, $libraryIds: [ID!], $limit: Int, $offset: Int) { titles(facet: $facet, libraryIds: $libraryIds, limit: $limit, offset: $offset) { items { ...TitleFields } hasMore } }
+
+fragment TitleFields on TitlePayload {
+  id libraryId name facet monitored year slug overview tags
+  externalIds { source value }
+  imdbId qualityProfileId rootFolderPath minAvailability monitorType sizeBytes
+  episodesOwned episodesMonitored episodesTotal createdAt posterUrl
+}

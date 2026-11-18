@@ -1,0 +1,1 @@
+query TitleDownloads($id: ID!) { title(id: $id) { downloadQueueItems(includeAllActivity: true) { clientId clientType downloadClientItemId downloadId } } }

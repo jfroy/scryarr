@@ -1,0 +1,8 @@
+mutation UpdateTitle($input: UpdateTitleInput!) { updateTitle(input: $input) { ...TitleFields } }
+
+fragment TitleFields on TitlePayload {
+  id libraryId name facet monitored year slug overview tags
+  externalIds { source value }
+  imdbId qualityProfileId rootFolderPath minAvailability monitorType sizeBytes
+  episodesOwned episodesMonitored episodesTotal createdAt posterUrl
+}

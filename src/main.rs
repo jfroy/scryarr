@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use scryarr::config::Config;
+use scryarr::scryer::ScryerClient;
 use scryarr::store::Store;
 use scryarr::{AppState, app};
 use tokio::net::TcpListener;
@@ -32,7 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, "scryarr starting");
 
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
     let state = AppState {
+        scryer: ScryerClient::new(&config.scryer_url, http.clone()),
+        http,
         config: Arc::new(config),
         store,
     };

@@ -1,0 +1,1 @@
+query QualityProfiles { qualityProfileSettings { profiles { id name } globalProfileId } }

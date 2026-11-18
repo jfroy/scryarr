@@ -1,0 +1,1 @@
+query RootFolders($facet: MediaFacetValue!) { rootFolders(facet: $facet) { path isDefault } }
