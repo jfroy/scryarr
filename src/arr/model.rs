@@ -130,7 +130,7 @@ pub struct Episode {
     pub season_number: i32,
     pub episode_number: i32,
     pub title: Option<String>,
-    pub air_date: Option<String>,
+    pub air_date_utc: Option<String>,
     pub monitored: bool,
     pub has_file: bool,
     pub episode_file_id: i32,

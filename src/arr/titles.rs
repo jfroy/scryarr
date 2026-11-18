@@ -20,7 +20,7 @@ use crate::store::IdKind;
 
 const PAGE_SIZE: i64 = 200;
 
-fn require(conn: &Conn, flavor: Flavor) -> Result<(), AppError> {
+pub(super) fn require(conn: &Conn, flavor: Flavor) -> Result<(), AppError> {
     if conn.flavor == flavor {
         Ok(())
     } else {
@@ -58,7 +58,7 @@ async fn qp_id(st: &AppState, conn: &Conn, title: &scryer::Title) -> Result<Opti
     }
 }
 
-pub async fn find_title(
+pub(super) async fn find_title(
     state: &AppState,
     conn: &Conn,
     arr_id: i32,
@@ -104,7 +104,7 @@ async fn all_titles(st: &AppState, conn: &Conn) -> Result<Vec<scryer::Title>, Ap
     }
 }
 
-async fn detail(
+pub(super) async fn detail(
     st: &AppState,
     conn: &Conn,
     title: &scryer::Title,
