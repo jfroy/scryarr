@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "event_type": "download",
+  "summary_title": "download",
+  "summary_message": "download event",
+  "app": {"name": "scryer", "version": "0.22.4"},
+  "title": {"name": "Show", "facet": "series", "path": "/media2/library/tv/Show", "external_ids": {"tvdb_id": "81189"}},
+  "episode": {"season_number": "2", "episode_number": "3"},
+  "media_files": [{"path": "/media2/library/tv/Show/Season 02/Show S02E03.mkv"}]
+}

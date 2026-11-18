@@ -242,6 +242,15 @@ impl Store {
         .collect()
     }
 
+    pub async fn all_notifications(&self) -> Result<Vec<Notification>> {
+        sqlx::query("SELECT id, library_id, flavor, body FROM notifications ORDER BY id")
+            .fetch_all(&self.pool)
+            .await?
+            .iter()
+            .map(notification_from_row)
+            .collect()
+    }
+
     pub async fn delete_notification(&self, library_id: &str, id: i32) -> Result<bool> {
         let res = sqlx::query("DELETE FROM notifications WHERE id = ? AND library_id = ?")
             .bind(id)

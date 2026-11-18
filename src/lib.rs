@@ -2,6 +2,7 @@ pub mod arr;
 pub mod config;
 pub mod domain;
 pub mod error;
+pub mod events;
 pub mod scryer;
 pub mod store;
 pub mod tofa;
@@ -28,6 +29,7 @@ pub struct AppState {
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .merge(events::router())
         .nest(
             "/radarr/{library_id}/api/v3",
             arr::router().layer(Extension(Flavor::Radarr)),

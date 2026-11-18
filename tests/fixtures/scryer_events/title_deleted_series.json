@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "event_type": "title_deleted",
+  "summary_title": "title_deleted",
+  "summary_message": "title_deleted event",
+  "app": {"name": "scryer", "version": "0.22.4"},
+  "title": {"name": "Show", "facet": "series", "path": "/media2/library/tv/Show", "external_ids": {"tvdb_id": "81189"}}
+}

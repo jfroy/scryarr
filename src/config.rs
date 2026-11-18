@@ -3,12 +3,23 @@ use std::path::PathBuf;
 
 use url::Url;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     pub listen: SocketAddr,
     pub scryer_url: Url,
     pub events_token: String,
     pub data_dir: PathBuf,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("listen", &self.listen)
+            .field("scryer_url", &self.scryer_url)
+            .field("events_token", &"<redacted>")
+            .field("data_dir", &self.data_dir)
+            .finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -79,6 +90,17 @@ mod tests {
             ("SCRYER_EVENTS_TOKEN", ""),
         ]);
         assert!(Config::from_vars(v).is_err());
+    }
+
+    #[test]
+    fn debug_redacts_events_token() {
+        let v = vars(&[
+            ("SCRYER_URL", "http://scryer:8080"),
+            ("SCRYER_EVENTS_TOKEN", "super-secret-token"),
+        ]);
+        let shown = format!("{:?}", Config::from_vars(v).unwrap());
+        assert!(!shown.contains("super-secret-token"));
+        assert!(shown.contains("<redacted>"));
     }
 
     #[test]

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "event_type": "grab",
+  "summary_title": "grab",
+  "summary_message": "grab event",
+  "app": {"name": "scryer", "version": "0.22.4"},
+  "title": {"name": "Heat", "facet": "movie", "path": "/media2/library/movies/Heat (1995)", "external_ids": {"tmdb_id": "949"}}
+}
