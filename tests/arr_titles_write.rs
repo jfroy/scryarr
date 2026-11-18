@@ -491,3 +491,51 @@ async fn delete_series_never_deletes_files() {
     assert_eq!(del[0]["input"]["deleteFilesOnDisk"], false);
     server.verify().await;
 }
+
+#[tokio::test]
+async fn post_movie_succeeds_when_metadata_fails() {
+    let (server, st) = setup("MOVIE").await;
+    let qpid = qp(&st, "qp-uuid").await;
+    common::scryer_mock::mock_op_status(&server, "MetadataMovie", 500).await;
+    expect_op(
+        &server,
+        "AddTitle",
+        add_result(
+            title("m1", "MOVIE", &[("tmdb", "603")], Some("qp-uuid"), true),
+            false,
+        ),
+        1,
+    )
+    .await;
+    let mut body = movie_body(false);
+    body["qualityProfileId"] = json!(qpid);
+    let (code, resp) = send(&st, Method::POST, "/radarr/L1/api/v3/movie", Some(body)).await;
+    assert_eq!(code, StatusCode::CREATED, "{resp}");
+    let add = vars_of(&server, "AddTitle").await;
+    assert!(add[0]["input"].get("year").is_none());
+    assert!(add[0]["input"].get("overview").is_none());
+}
+
+#[tokio::test]
+async fn post_series_succeeds_when_metadata_fails() {
+    let (server, st) = setup("SERIES").await;
+    let qpid = qp(&st, "qp-uuid").await;
+    common::scryer_mock::mock_op_status(&server, "MetadataSeries", 500).await;
+    expect_op(
+        &server,
+        "AddTitle",
+        add_result(
+            title("s1", "SERIES", &[("tvdb", "81189")], Some("qp-uuid"), true),
+            false,
+        ),
+        1,
+    )
+    .await;
+    let body = json!({
+        "title": "Show", "tvdbId": 81189, "qualityProfileId": qpid, "monitored": true,
+        "seasons": [{"seasonNumber": 1, "monitored": true}]
+    });
+    let (code, resp) = send(&st, Method::POST, "/sonarr/L1/api/v3/series", Some(body)).await;
+    assert_eq!(code, StatusCode::CREATED, "{resp}");
+    server.verify().await;
+}

@@ -549,11 +549,13 @@ pub async fn add_movie(
                         tmdb_id: Some(i64::from(tmdb)),
                     },
                 )
-                .await?
-                .metadata_movie;
+                .await
+                .map(|d| d.metadata_movie)
+                .inspect_err(|e| tracing::warn!(error = %e, "movie metadata lookup failed; adding without it"))
+                .ok();
             (
-                y.or(m.year),
-                o.or(Some(m.overview).filter(|s| !s.is_empty())),
+                y.or(m.as_ref().and_then(|m| m.year)),
+                o.or(m.map(|m| m.overview).filter(|s| !s.is_empty())),
             )
         }
     };
@@ -606,11 +608,13 @@ pub async fn add_series(
                         tvdb_id: Some(tvdb.to_string()),
                     },
                 )
-                .await?
-                .metadata_series;
+                .await
+                .map(|d| d.metadata_series)
+                .inspect_err(|e| tracing::warn!(error = %e, "series metadata lookup failed; adding without it"))
+                .ok();
             (
-                y.or(m.year),
-                o.or(Some(m.overview).filter(|s| !s.is_empty())),
+                y.or(m.as_ref().and_then(|m| m.year)),
+                o.or(m.map(|m| m.overview).filter(|s| !s.is_empty())),
             )
         }
     };
