@@ -108,6 +108,14 @@ pub struct UpdateTitle;
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "graphql/schema.graphql",
+    query_path = "graphql/set_title_monitored.graphql",
+    response_derives = "Debug, Clone"
+)]
+pub struct SetTitleMonitored;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "graphql/schema.graphql",
     query_path = "graphql/delete_title.graphql",
     response_derives = "Debug, Clone"
 )]

@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::domain::Facet;
 use crate::scryer::ops::{
-    add_title, title_detail, titles_by_external_ids, titles_page, update_title,
+    add_title, set_title_monitored, title_detail, titles_by_external_ids, titles_page, update_title,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,7 +128,8 @@ title_from_fields!(
     titles_by_external_ids,
     title_detail,
     add_title,
-    update_title
+    update_title,
+    set_title_monitored
 );
 
 impl From<title_detail::TitleDetailTitle> for TitleDetail {

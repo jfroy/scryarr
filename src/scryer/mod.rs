@@ -37,11 +37,36 @@ impl ScryerClient {
         key: &ApiKey,
         vars: Q::Variables,
     ) -> Result<Q::ResponseData, AppError> {
+        self.send::<Q>(key, Q::build_query(vars), false).await
+    }
+
+    /// Like `run`, but drops every null variable before sending. Generated input
+    /// types serialize `None` as an explicit `null`, which scryer reads as "clear
+    /// this field" on patch inputs; omission is what means "leave it alone".
+    pub async fn run_omitting_nulls<Q: GraphQLQuery>(
+        &self,
+        key: &ApiKey,
+        vars: Q::Variables,
+    ) -> Result<Q::ResponseData, AppError> {
+        self.send::<Q>(key, Q::build_query(vars), true).await
+    }
+
+    async fn send<Q: GraphQLQuery>(
+        &self,
+        key: &ApiKey,
+        body: graphql_client::QueryBody<Q::Variables>,
+        omit_nulls: bool,
+    ) -> Result<Q::ResponseData, AppError> {
+        let mut payload = serde_json::to_value(&body)
+            .map_err(|e| AppError::Internal(format!("serializing graphql request: {e}")))?;
+        if omit_nulls && let Some(vars) = payload.get_mut("variables") {
+            strip_nulls(vars);
+        }
         let resp = self
             .http
             .post(self.endpoint.clone())
             .bearer_auth(&key.0)
-            .json(&Q::build_query(vars))
+            .json(&payload)
             .send()
             .await
             .map_err(|e| {
@@ -85,5 +110,16 @@ impl ScryerClient {
         body.data.ok_or_else(|| {
             AppError::Upstream(format!("scryer returned HTTP {status} with no data"))
         })
+    }
+}
+
+fn strip_nulls(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Object(map) => {
+            map.retain(|_, x| !x.is_null());
+            map.values_mut().for_each(strip_nulls);
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(strip_nulls),
+        _ => {}
     }
 }

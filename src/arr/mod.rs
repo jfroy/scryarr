@@ -154,10 +154,20 @@ pub fn router() -> Router<AppState> {
         .route("/rootfolder", get(system::root_folders))
         .route("/tag", get(system::tags).post(system::create_tag))
         .route("/languageprofile", get(system::language_profiles))
-        .route("/movie", get(titles::list_movies))
+        .route("/movie", get(titles::list_movies).post(titles::add_movie))
         .route("/movie/lookup", get(titles::lookup_movie))
-        .route("/movie/{id}", get(titles::get_movie))
-        .route("/series", get(titles::list_series))
+        .route(
+            "/movie/{id}",
+            get(titles::get_movie)
+                .put(titles::update_movie)
+                .delete(titles::delete_title),
+        )
+        .route("/series", get(titles::list_series).post(titles::add_series))
         .route("/series/lookup", get(titles::lookup_series))
-        .route("/series/{id}", get(titles::get_series))
+        .route(
+            "/series/{id}",
+            get(titles::get_series)
+                .put(titles::update_series)
+                .delete(titles::delete_title),
+        )
 }
