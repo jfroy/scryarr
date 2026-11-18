@@ -4,6 +4,7 @@ pub mod domain;
 pub mod error;
 pub mod scryer;
 pub mod store;
+pub mod tofa;
 
 use std::sync::Arc;
 

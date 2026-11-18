@@ -1,6 +1,7 @@
 mod convert;
 mod episodes;
 pub mod model;
+mod notification;
 mod queue;
 mod system;
 mod titles;
@@ -185,4 +186,13 @@ pub fn router() -> Router<AppState> {
         .route("/history/series", get(queue::history_series))
         .route("/history/failed/{id}", post(queue::history_failed))
         .route("/command", post(queue::post_command))
+        .route(
+            "/notification",
+            get(notification::list).post(notification::create),
+        )
+        .route("/notification/schema", get(notification::schema))
+        .route(
+            "/notification/{id}",
+            put(notification::update).delete(notification::delete),
+        )
 }
