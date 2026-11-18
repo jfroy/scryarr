@@ -152,11 +152,18 @@ pub struct QueueItem {
     pub id: i32,
     pub title: String,
     pub status: String,
-    pub size: f64,
-    pub sizeleft: f64,
+    pub tracked_download_state: String,
+    pub size: i64,
+    pub sizeleft: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeleft: Option<String>,
     pub movie_id: Option<i32>,
     pub series_id: Option<i32>,
     pub episode_id: Option<i32>,
+    pub season_number: Option<i32>,
+    pub download_id: String,
+    pub protocol: String,
+    pub download_client: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +181,7 @@ pub struct HistoryRecord {
     pub id: i32,
     pub event_type: String,
     pub date: String,
+    pub download_id: Option<String>,
     pub source_title: String,
     pub movie_id: Option<i32>,
     pub series_id: Option<i32>,
@@ -186,4 +194,7 @@ pub struct Command {
     pub id: i32,
     pub name: String,
     pub status: String,
+    pub queued: String,
+    pub started: String,
+    pub ended: String,
 }

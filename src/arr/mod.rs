@@ -1,6 +1,7 @@
 mod convert;
 mod episodes;
 pub mod model;
+mod queue;
 mod system;
 mod titles;
 
@@ -11,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use axum::extract::{FromRequestParts, Path};
 use axum::http::request::Parts;
-use axum::routing::{get, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Extension, Router};
 
 use crate::AppState;
@@ -178,4 +179,10 @@ pub fn router() -> Router<AppState> {
             "/episodefile/{id}",
             get(episodes::get_episode_file).delete(episodes::delete_episode_file),
         )
+        .route("/queue", get(queue::list_queue))
+        .route("/queue/{id}", delete(queue::delete_queue))
+        .route("/history/movie", get(queue::history_movie))
+        .route("/history/series", get(queue::history_series))
+        .route("/history/failed/{id}", post(queue::history_failed))
+        .route("/command", post(queue::post_command))
 }
