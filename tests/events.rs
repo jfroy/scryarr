@@ -59,6 +59,36 @@ fn download_episode_translates_season() {
 }
 
 #[test]
+fn episode_file_without_season_is_none() {
+    let mut req = request("download_episode");
+    req.episode = None;
+    assert!(to_tofa(&req, Flavor::Sonarr).is_none());
+    let mut req = request("download_episode");
+    req.event_type = scryer_plugin_sdk::NotificationEventType::FileDeleted;
+    req.episode.as_mut().unwrap().season_number = None;
+    assert!(to_tofa(&req, Flavor::Sonarr).is_none());
+}
+
+#[test]
+fn multi_season_event_uses_the_files_own_season() {
+    let mut req = request("download_episode");
+    let file = req.media_files[0].path.clone();
+    let mut a = req.episode.take().unwrap();
+    a.season_number = Some("1".into());
+    let mut b = a.clone();
+    b.season_number = Some("3".into());
+    b.media_file_path = Some(file);
+    req.episodes = vec![a, b];
+    let v = to_tofa(&req, Flavor::Sonarr).map(|p| serde_json::to_value(p).unwrap());
+    assert_eq!(v.unwrap()["episodeFile"]["seasonNumber"], 3);
+
+    for e in &mut req.episodes {
+        e.media_file_path = None;
+    }
+    assert!(to_tofa(&req, Flavor::Sonarr).is_none());
+}
+
+#[test]
 fn upgrade_lists_deleted_files() {
     let v = translate("upgrade_movie", Flavor::Radarr).unwrap();
     assert_eq!(v["eventType"], "Download");

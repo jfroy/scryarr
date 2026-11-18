@@ -58,7 +58,7 @@ pub fn to_tofa(req: &PluginNotificationRequest, flavor: Flavor) -> Option<TofaPa
             );
         }
         E::Download | E::ImportComplete | E::Upgrade => {
-            set_file(&mut p, movie, file_path()?, &seasons);
+            set_file(&mut p, req, movie, file_path()?)?;
             if req.event_type == E::Upgrade {
                 p.is_upgrade = Some(true);
                 let deleted: Vec<FilePayload> = req
@@ -87,20 +87,45 @@ pub fn to_tofa(req: &PluginNotificationRequest, flavor: Flavor) -> Option<TofaPa
                 p.renamed_episode_files = Some(renamed);
             }
         }
-        E::FileDeleted => set_file(&mut p, movie, file_path()?, &seasons),
+        E::FileDeleted => set_file(&mut p, req, movie, file_path()?)?,
         _ => {}
     }
     Some(p)
 }
 
-fn set_file(p: &mut TofaPayload, movie: bool, path: String, seasons: &BTreeSet<i32>) {
+fn set_file(
+    p: &mut TofaPayload,
+    req: &PluginNotificationRequest,
+    movie: bool,
+    path: String,
+) -> Option<()> {
     if movie {
         p.movie_file = Some(FilePayload { path });
     } else {
+        let season_number = file_season(req, &path)?;
         p.episode_file = Some(EpisodeFilePayload {
             path,
-            season_number: seasons.iter().next().copied().unwrap_or(0),
+            season_number,
         });
+    }
+    Some(())
+}
+
+fn file_season(req: &PluginNotificationRequest, path: &str) -> Option<i32> {
+    let own = req
+        .episodes
+        .iter()
+        .chain(req.episode.iter())
+        .filter(|e| e.media_file_path.as_deref() == Some(path))
+        .find_map(|e| e.season_number.as_deref()?.parse().ok());
+    if own.is_some() {
+        return own;
+    }
+    let all = seasons(req);
+    if all.len() == 1 {
+        all.into_iter().next()
+    } else {
+        None
     }
 }
 
