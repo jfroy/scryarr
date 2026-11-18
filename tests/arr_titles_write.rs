@@ -539,3 +539,36 @@ async fn post_series_succeeds_when_metadata_fails() {
     assert_eq!(code, StatusCode::CREATED, "{resp}");
     server.verify().await;
 }
+
+async fn post_movie_with_availability(avail: &str) -> Value {
+    let (server, st) = setup("MOVIE").await;
+    let qpid = qp(&st, "qp-uuid").await;
+    mock_op(&server, "MetadataMovie", movie_metadata()).await;
+    mock_op(
+        &server,
+        "AddTitle",
+        add_result(
+            title("m1", "MOVIE", &[("tmdb", "603")], Some("qp-uuid"), true),
+            false,
+        ),
+    )
+    .await;
+    let mut body = movie_body(false);
+    body["qualityProfileId"] = json!(qpid);
+    body["minimumAvailability"] = json!(avail);
+    let (code, _) = send(&st, Method::POST, "/radarr/L1/api/v3/movie", Some(body)).await;
+    assert_eq!(code, StatusCode::CREATED);
+    vars_of(&server, "AddTitle").await.remove(0)
+}
+
+#[tokio::test]
+async fn post_movie_maps_in_cinemas_availability() {
+    let v = post_movie_with_availability("inCinemas").await;
+    assert_eq!(v["input"]["options"]["minAvailability"], "in_cinemas");
+}
+
+#[tokio::test]
+async fn post_movie_omits_unsupported_availability() {
+    let v = post_movie_with_availability("tba").await;
+    assert!(v["input"]["options"].get("minAvailability").is_none());
+}

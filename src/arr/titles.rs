@@ -420,6 +420,15 @@ pub struct SeriesWrite {
     add_options: AddOptions,
 }
 
+fn scryer_availability(v: Option<&str>) -> Option<String> {
+    match v? {
+        "inCinemas" => Some("in_cinemas".into()),
+        "announced" => Some("announced".into()),
+        "released" => Some("released".into()),
+        _ => None,
+    }
+}
+
 fn default_true() -> bool {
     true
 }
@@ -569,7 +578,12 @@ pub async fn add_movie(
                     add_title::MediaFacetValue::MOVIE,
                     body.title.clone(),
                     body.monitored,
-                    add_options_input(Some(qp), body.minimum_availability.clone(), None, None),
+                    add_options_input(
+                        Some(qp),
+                        scryer_availability(body.minimum_availability.as_deref()),
+                        None,
+                        None,
+                    ),
                     Some(i64::from(tmdb)),
                     None,
                     body.title_slug.clone(),

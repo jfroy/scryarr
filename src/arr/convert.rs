@@ -48,10 +48,11 @@ pub fn movie(title: &scryer::Title, qp_id: Option<i32>) -> Option<RadarrMovie> {
         folder_name: None,
         root_folder_path: title.root_folder_path.clone(),
         quality_profile_id: qp_id.unwrap_or(0),
-        minimum_availability: title
-            .min_availability
-            .clone()
-            .unwrap_or_else(|| "released".into()),
+        minimum_availability: match title.min_availability.as_deref() {
+            Some("in_cinemas") => "inCinemas".into(),
+            Some(other) if !other.is_empty() => other.to_string(),
+            _ => "released".into(),
+        },
         tags: Vec::new(),
         added: title.created_at.clone(),
         size_on_disk: size,
