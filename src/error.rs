@@ -13,12 +13,20 @@ pub enum AppError {
     BadRequest(String),
     #[error("upstream error: {0}")]
     Upstream(String),
+    #[error("internal error: {0}")]
+    Internal(String),
     #[error("scryer error: {message}")]
     Scryer {
         code: Option<String>,
         reason: Option<String>,
         message: String,
     },
+}
+
+impl From<sqlx::Error> for AppError {
+    fn from(e: sqlx::Error) -> Self {
+        AppError::Internal(e.to_string())
+    }
 }
 
 fn validation_body(message: &str) -> serde_json::Value {
@@ -47,6 +55,14 @@ impl IntoResponse for AppError {
                     None => message,
                 };
                 (StatusCode::BAD_REQUEST, Json(validation_body(&m))).into_response()
+            }
+            AppError::Internal(m) => {
+                tracing::error!(error = %m, "internal error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "message": "internal error" })),
+                )
+                    .into_response()
             }
             AppError::Upstream(m) => {
                 (StatusCode::BAD_GATEWAY, Json(json!({ "message": m }))).into_response()

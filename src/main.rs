@@ -41,6 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         http,
         config: Arc::new(config),
         store,
+        libraries: Default::default(),
     };
     axum::serve(listener, app(state))
         .with_graceful_shutdown(shutdown())

@@ -1,3 +1,5 @@
+pub mod scryer_mock;
+
 use std::sync::Arc;
 
 use scryarr::AppState;
@@ -24,5 +26,6 @@ pub async fn test_state_with(scryer_url: &str) -> AppState {
         http,
         config: Arc::new(config),
         store: Store::open_in_memory().await.unwrap(),
+        libraries: Default::default(),
     }
 }
