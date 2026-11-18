@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use scryarr::AppState;
 use scryarr::config::Config;
+use scryarr::store::Store;
 
-pub fn test_state() -> AppState {
+pub async fn test_state() -> AppState {
     let config = Config::from_vars(|k| match k {
         "SCRYER_URL" => Some("http://scryer.invalid:8080".to_string()),
         "SCRYER_EVENTS_TOKEN" => Some("test-token".to_string()),
@@ -12,5 +13,6 @@ pub fn test_state() -> AppState {
     .unwrap();
     AppState {
         config: Arc::new(config),
+        store: Store::open_in_memory().await.unwrap(),
     }
 }

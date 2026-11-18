@@ -7,7 +7,7 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn healthz_returns_ok() {
-    let res = scryarr::app(common::test_state())
+    let res = scryarr::app(common::test_state().await)
         .oneshot(Request::get("/healthz").body(Body::empty()).unwrap())
         .await
         .unwrap();

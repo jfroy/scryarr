@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use scryarr::config::Config;
+use scryarr::store::Store;
 use scryarr::{AppState, app};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
@@ -15,11 +16,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let config = Config::from_env()?;
+    if let Err(e) = std::fs::create_dir_all(&config.data_dir) {
+        tracing::error!(error = %e, dir = %config.data_dir.display(), "cannot create data dir");
+        std::process::exit(1);
+    }
+    let db_path = config.data_dir.join("state.db");
+    let store = match Store::open(&db_path).await {
+        Ok(store) => store,
+        Err(e) => {
+            tracing::error!(error = %e, path = %db_path.display(), "cannot open state database");
+            std::process::exit(1);
+        }
+    };
+
     let listener = TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, "scryarr starting");
 
     let state = AppState {
         config: Arc::new(config),
+        store,
     };
     axum::serve(listener, app(state))
         .with_graceful_shutdown(shutdown())
