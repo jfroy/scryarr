@@ -94,6 +94,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - if: steps.scryer.outputs.changed == 'true'
+        id: test
         name: Build and test against the new schema
         run: |
           cargo update -p scryer-plugin-sdk
@@ -108,15 +109,39 @@ jobs:
           VERSION: ${{ steps.scryer.outputs.version }}
           NEXT: ${{ steps.bump.outputs.next }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add graphql/schema.graphql Cargo.toml Cargo.lock src/scryer/mod.rs
-          git commit -m "chore: track scryer ${VERSION}"
-          git tag -a "v${NEXT}" -m "scryarr ${NEXT} (scryer ${VERSION})"
-          git push origin HEAD:main "v${NEXT}"
+          # main requires verified signatures; commits created through the
+          # GraphQL API with GITHUB_TOKEN are signed by GitHub.
+          work="$(mktemp -d)"
+          : > "${work}/additions.jsonl"
+          for path in $(git diff --name-only); do
+            base64 -w0 "$path" > "${work}/blob"
+            jq -cn --arg path "$path" --rawfile contents "${work}/blob" \
+              '{path: $path, contents: $contents}' >> "${work}/additions.jsonl"
+          done
+          jq -n \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg head "$(git rev-parse HEAD)" \
+            --arg headline "chore: track scryer ${VERSION}" \
+            --slurpfile additions "${work}/additions.jsonl" \
+            '{
+              query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: {input: {
+                branch: {repositoryNameWithOwner: $repo, branchName: "main"},
+                expectedHeadOid: $head,
+                message: {headline: $headline},
+                fileChanges: {additions: $additions}
+              }}
+            }' > "${work}/request.json"
+          oid="$(gh api graphql --input "${work}/request.json" --jq '.data.createCommitOnBranch.commit.oid')"
+          if [ -z "$oid" ]; then
+            echo "createCommitOnBranch returned no commit" >&2
+            exit 1
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/v${NEXT}" -f sha="$oid" > /dev/null
           gh workflow run release.yaml --ref "v${NEXT}" -f version="${NEXT}"
+          echo "released v${NEXT} at ${oid}"
 
-      - if: failure() && steps.scryer.outputs.changed == 'true'
+      - if: failure() && steps.test.outcome == 'failure'
         name: Open an issue when the new scryer release breaks the build
         env:
           GH_TOKEN: ${{ github.token }}
