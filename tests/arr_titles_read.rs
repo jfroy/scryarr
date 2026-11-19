@@ -98,6 +98,13 @@ async fn movie_list_pages_through_catalog() {
     assert_eq!(body.as_array().unwrap().len(), 203);
     assert_eq!(body[0]["id"], 1);
     assert_eq!(body[0]["tmdbId"], 1);
+    for id in ["a0", "b2"] {
+        assert_eq!(
+            st.store.title_library(id).await.unwrap(),
+            Some(("L1".to_owned(), None)),
+            "{id}"
+        );
+    }
     server.verify().await;
 }
 
@@ -241,6 +248,13 @@ async fn movie_get_returns_movie_and_filters_library() {
     assert_eq!(body["id"], 603);
     assert_eq!(body["title"], "Title m1");
     assert_eq!(body["hasFile"], true);
+    for (id, lib) in [("m1", "L1"), ("other", "L2")] {
+        assert_eq!(
+            st.store.title_library(id).await.unwrap(),
+            Some((lib.to_owned(), None)),
+            "{id}"
+        );
+    }
 }
 
 #[tokio::test]

@@ -299,6 +299,61 @@ impl Store {
         tx.commit().await
     }
 
+    /// Records which library each scryer title belongs to. A title that moved
+    /// to another library loses its remembered path.
+    pub async fn remember_titles(&self, titles: &[(&str, &str)]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for &(title_id, library_id) in titles {
+            sqlx::query(
+                "INSERT INTO titles (title_id, library_id) VALUES (?, ?) \
+                 ON CONFLICT (title_id) DO UPDATE SET \
+                 path = CASE WHEN library_id = excluded.library_id THEN path END, \
+                 library_id = excluded.library_id",
+            )
+            .bind(title_id)
+            .bind(library_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await
+    }
+
+    /// Records a title's library together with its folder.
+    pub async fn remember_title_path(
+        &self,
+        title_id: &str,
+        library_id: &str,
+        path: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO titles (title_id, library_id, path) VALUES (?, ?, ?) \
+             ON CONFLICT (title_id) DO UPDATE SET \
+             library_id = excluded.library_id, path = excluded.path",
+        )
+        .bind(title_id)
+        .bind(library_id)
+        .bind(path)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The library a scryer title belongs to and its last known folder.
+    pub async fn title_library(&self, title_id: &str) -> Result<Option<(String, Option<String>)>> {
+        sqlx::query_as("SELECT library_id, path FROM titles WHERE title_id = ?")
+            .bind(title_id)
+            .fetch_optional(&self.pool)
+            .await
+    }
+
+    pub async fn forget_title(&self, title_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM titles WHERE title_id = ?")
+            .bind(title_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn library_for_path(&self, facet: Facet, path: &str) -> Result<Option<String>> {
         let rows: Vec<(String, String)> =
             sqlx::query_as("SELECT library_id, path FROM library_roots WHERE facet = ?")
@@ -467,6 +522,33 @@ mod tests {
                 .as_deref(),
             Some("L1")
         );
+    }
+
+    #[tokio::test]
+    async fn title_library_tracks_moves_and_paths() {
+        let s = Store::open_in_memory().await.unwrap();
+        assert_eq!(s.title_library("t1").await.unwrap(), None);
+        s.remember_titles(&[("t1", "L1"), ("t2", "L1")])
+            .await
+            .unwrap();
+        assert_eq!(
+            s.title_library("t1").await.unwrap(),
+            Some(("L1".into(), None))
+        );
+        s.remember_title_path("t1", "L1", "/m/A").await.unwrap();
+        s.remember_titles(&[("t1", "L1")]).await.unwrap();
+        assert_eq!(
+            s.title_library("t1").await.unwrap(),
+            Some(("L1".into(), Some("/m/A".into())))
+        );
+        s.remember_titles(&[("t1", "L2")]).await.unwrap();
+        assert_eq!(
+            s.title_library("t1").await.unwrap(),
+            Some(("L2".into(), None))
+        );
+        s.forget_title("t1").await.unwrap();
+        assert_eq!(s.title_library("t1").await.unwrap(), None);
+        assert!(s.title_library("t2").await.unwrap().is_some());
     }
 
     #[tokio::test]

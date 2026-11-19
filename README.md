@@ -5,9 +5,10 @@ media server as a Radarr or Sonarr v3 instance, and relays scryer's Generic Webh
 tofa. tofa requests, searches and tracks titles through the bridge; scryer stays the system of record.
 
 The bridge holds no scryer credential and stores none of tofa's API keys. Its only state is a small
-SQLite file (`state.db`): tofa's webhook registrations, each library's root folders (used to route
-scryer events), and the small integer IDs it hands tofa for quality profiles, episodes, episode files,
-queue and history records, tags and root folders. See [Losing state.db](#losing-statedb).
+SQLite file (`state.db`): tofa's webhook registrations, each library's root folders and the library
+of each scryer title it has seen (both used to route scryer events), and the small integer IDs it
+hands tofa for quality profiles, episodes, episode files, queue and history records, tags and root
+folders. See [Losing state.db](#losing-statedb).
 
 ## Connecting tofa
 
@@ -16,7 +17,10 @@ Add one Radarr or Sonarr connection per scryer library (Admin, Integrations):
 | Field | Value |
 |---|---|
 | URL | `http://<host>:8080/radarr/<libraryId>` for movie libraries, `http://<host>:8080/sonarr/<libraryId>` for series and anime libraries |
-| API key | A scryer API key for a user with Manage titles and Resolve imports on that library |
+| API key | A scryer API key for a user with View, Manage titles and Resolve imports on that library |
+
+The user needs View explicitly: scryer checks it as its own permission bit, not as something Manage
+titles implies, and without it `libraries` returns `[]`, so every route answers 404.
 
 The flavor must match the library's facet (`radarr` for `MOVIE`, `sonarr` for `SERIES` or `ANIME`);
 a mismatch fails tofa's Test button. Webhook registrations and root folders change the bridge's own
@@ -45,8 +49,9 @@ scryer pushes events to the bridge, which forwards them to the tofa webhooks tof
 2. Create a channel with method `POST`, content type `application/json` and URL
    `http://<host>:8080/scryer/events/<token>`, where `<token>` equals `SCRYER_EVENTS_TOKEN`.
    A wrong token returns 404.
-3. Subscribe it to grab, import complete, upgrade, rename, title added, title deleted and file
-   deleted.
+3. Subscribe the channel to these events: Grabbed Release, Import Completed, Upgrade Imported,
+   Rename, Title Added, Title Deleted and File Deleted. A channel without subscriptions receives
+   nothing.
 
 | scryer event | tofa event |
 |---|---|
@@ -58,22 +63,36 @@ scryer pushes events to the bridge, which forwards them to the tofa webhooks tof
 | `title_deleted` | `MovieDelete` / `SeriesDelete` |
 | `test` | `Test` |
 
-scryer's `download` event reports a *failed* download, so the bridge does not relay it. Every other
-event type, known or not, is acknowledged with `200 {"delivered":0}` and dropped; tofa also polls
-the queue and library, so a dropped event delays an update rather than losing it.
+scryer's `download` event reports a *failed* download, so the bridge does not relay it. scryer sends
+both `import_complete` and `upgrade` for a file that replaced another; for a single-file import the
+bridge relays only the `upgrade`, which carries `deletedFiles`, so tofa gets one `Download`. A
+multi-file import is always relayed, since it may also hold new files that no `upgrade` covers.
+Every other event type, known or not, is acknowledged with `200 {"delivered":0}` and dropped; tofa
+also polls the queue and library, so a dropped event delays an update rather than losing it.
 
-The bridge answers 503 with `Retry-After` when tofa is unreachable, so scryer's own retry applies.
+Events are routed to a library by the root folder that holds the title's folder. scryer sends
+`title_added` (the folder does not exist yet) and `title_deleted` (the title is already gone) without
+a folder, so those are routed by scryer title ID instead, using the library the bridge last saw the
+title in: any tofa read or add of the title, or any earlier event for it, records that. A title the
+bridge has never seen is dropped. Title deletes carry the folder from the title's last routed event,
+when there was one.
+
+The bridge answers 503 with `Retry-After` when tofa is unreachable. scryer retries only its
+import-space health events; it logs and drops any other failed delivery, and tofa's polling catches
+up.
 
 ## Losing state.db
 
 Movie and series IDs are the TMDB and TVDB IDs themselves, so they survive. Everything else in
 `state.db` does not:
 
-- **Quality profiles.** The profile IDs tofa saved in each connection (default, 4K, anime) may now
-  name no profile or a different one. Open each connection in tofa, re-pick its profiles and save.
+- **Quality profiles and tags.** The profile IDs (default, 4K, anime) and tag IDs (default, anime)
+  tofa saved in each connection may now name nothing or something else. Open each connection in
+  tofa, re-pick its profiles and tags and save.
 - **Event routing.** The bridge routes scryer events by the library's root folders, which it records
   when tofa reads `rootfolder`. Until tofa does that again, on the connection's Test or save, events
-  for that library are dropped.
+  for that library are dropped. Title added and deleted events are routed by the title's library,
+  which the bridge learns again as tofa reads its library; until then they are dropped.
 - **Webhook registrations.** tofa's webhooks are gone, so nothing reaches tofa until each connection
   is saved again, which registers it anew.
 

@@ -77,11 +77,30 @@ pub(super) async fn find_title(
             },
         )
         .await?;
-    data.titles_by_external_ids
+    let titles: Vec<scryer::Title> = data
+        .titles_by_external_ids
         .into_iter()
         .map(scryer::Title::from)
+        .collect();
+    let seen: Vec<&scryer::Title> = titles.iter().collect();
+    remember(state, &seen).await;
+    titles
+        .into_iter()
         .find(|t| t.library_id == conn.library_id)
         .ok_or_else(|| AppError::NotFound("title not found".into()))
+}
+
+/// Records each title's library so events scryer sends without a path
+/// (`title_added`, `title_deleted`) can still be routed. Best effort: a store
+/// failure only costs those events.
+pub(super) async fn remember(st: &AppState, titles: &[&scryer::Title]) {
+    let pairs: Vec<(&str, &str)> = titles
+        .iter()
+        .map(|t| (t.id.as_str(), t.library_id.as_str()))
+        .collect();
+    if let Err(e) = st.store.remember_titles(&pairs).await {
+        tracing::warn!(error = %e, "failed to record title libraries");
+    }
 }
 
 async fn all_titles(st: &AppState, conn: &Conn) -> Result<Vec<scryer::ListedTitle>, AppError> {
@@ -103,6 +122,8 @@ async fn all_titles(st: &AppState, conn: &Conn) -> Result<Vec<scryer::ListedTitl
         let done = !data.titles.has_more || data.titles.items.is_empty();
         out.extend(data.titles.items.into_iter().map(scryer::ListedTitle::from));
         if done {
+            let seen: Vec<&scryer::Title> = out.iter().map(|t| &t.title).collect();
+            remember(st, &seen).await;
             return Ok(out);
         }
         offset += PAGE_SIZE;
@@ -636,6 +657,7 @@ pub async fn add_movie(
         )
         .await?;
     let mut t = scryer::Title::from(data.add_title.title);
+    remember(&st, &[&t]).await;
     if data.add_title.reused_existing_title && body.monitored.unwrap_or(true) && !t.monitored {
         t = set_monitored(&st, &conn, &t.id, true).await?;
     }
@@ -708,6 +730,7 @@ pub async fn add_series(
         )
         .await?;
     let mut t = scryer::Title::from(data.add_title.title);
+    remember(&st, &[&t]).await;
     let mut d = None;
     if data.add_title.reused_existing_title {
         let mut current = detail(&st, &conn, &t).await?;

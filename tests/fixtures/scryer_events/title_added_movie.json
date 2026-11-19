@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "event_type": "title_added",
+  "event_id": "evt-title-added-1",
+  "occurred_at": "2026-11-19T08:00:00+00:00",
+  "severity": "info",
+  "is_test": false,
+  "summary_title": "Added: Heat",
+  "summary_message": "Added 'Heat' to Scryer.",
+  "app": {"name": "Scryer", "version": "0.22.5"},
+  "title": {
+    "id": "t-heat",
+    "name": "Heat",
+    "facet": "movie",
+    "year": 1995,
+    "slug": "heat",
+    "overview": "A group of high-end professional thieves.",
+    "tags": [],
+    "external_ids": {
+      "tmdb_id": "949",
+      "imdb_id": "tt0113277",
+      "by_source": {"imdb": ["tt0113277"], "tmdb": ["949"]}
+    }
+  }
+}

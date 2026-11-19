@@ -593,3 +593,64 @@ async fn command_search_other_scryer_errors_still_fail() {
     .await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn queue_stops_on_an_empty_page() {
+    let (server, state) = setup("MOVIE").await;
+    mock_op(
+        &server,
+        "QueuePage",
+        json!({"data": {"downloadQueuePage": {"items": [], "hasMore": true, "totalCount": 7}}}),
+    )
+    .await;
+    let (s, v) = send(&state, Method::GET, "/radarr/L1/api/v3/queue", None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["totalRecords"], 0);
+    assert_eq!(vars_of(&server, "QueuePage").await.len(), 1);
+}
+
+#[tokio::test]
+async fn queue_selects_scope_only_for_sonarr() {
+    let (server, state) = setup("MOVIE").await;
+    mock_op(&server, "QueuePage", queue_resp(vec![])).await;
+    send(&state, Method::GET, "/radarr/L1/api/v3/queue", None).await;
+    let vars = vars_of(&server, "QueuePage").await;
+    assert_eq!(vars[0]["withScope"], false);
+
+    let (server, state) = setup("SERIES").await;
+    mock_op(&server, "QueuePage", queue_resp(vec![])).await;
+    send(&state, Method::GET, "/sonarr/L1/api/v3/queue", None).await;
+    let vars = vars_of(&server, "QueuePage").await;
+    assert_eq!(vars[0]["withScope"], true);
+}
+
+#[tokio::test]
+async fn queue_tolerates_scope_errors_only() {
+    let (server, state) = setup("SERIES").await;
+    let mut resp = queue_resp(vec![series_qitem("ep", "T1", Some("e3"), Value::Null)]);
+    resp["errors"] = json!([{
+        "message": "scope lookup failed",
+        "path": ["downloadQueuePage", "items", 0, "queueScope"]
+    }]);
+    mock_op(&server, "QueuePage", resp).await;
+    mock_detail(
+        &server,
+        "T1",
+        ResponseTemplate::new(200).set_body_json(series_detail("T1")),
+    )
+    .await;
+    let (s, v) = send(&state, Method::GET, "/sonarr/L1/api/v3/queue", None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["totalRecords"], 1);
+    assert_eq!(v["records"][0]["seasonNumber"], 2);
+
+    let (server, state) = setup("SERIES").await;
+    let mut resp = queue_resp(vec![series_qitem("ep", "T1", Some("e3"), Value::Null)]);
+    resp["errors"] = json!([
+        {"message": "scope lookup failed", "path": ["downloadQueuePage", "items", 0, "queueScope"]},
+        {"message": "title lookup failed", "path": ["downloadQueuePage", "items", 0, "title"]}
+    ]);
+    mock_op(&server, "QueuePage", resp).await;
+    let (s, _) = send(&state, Method::GET, "/sonarr/L1/api/v3/queue", None).await;
+    assert!(!s.is_success(), "{s}");
+}

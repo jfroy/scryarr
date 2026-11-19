@@ -212,6 +212,16 @@ fn queue_key(client_type: &str, client_id: Option<&str>, item_id: &str) -> Strin
     format!("{client_type}|{}|{item_id}", client_id.unwrap_or_default())
 }
 
+/// A queue item whose scope scryer cannot resolve loses only its season, not
+/// the whole queue: `queueScope` is nullable, so scryer still returns the
+/// item with the scope nulled out.
+fn is_queue_scope_error(e: &graphql_client::Error) -> bool {
+    matches!(
+        e.path.as_deref().and_then(<[_]>::last),
+        Some(graphql_client::PathFragment::Key(k)) if k == "queueScope"
+    )
+}
+
 struct Entry {
     item: QueueItem,
 }
@@ -222,17 +232,20 @@ async fn queue_entries(st: &AppState, conn: &Conn) -> Result<Vec<Entry>, AppErro
     loop {
         let data = st
             .scryer
-            .run::<QueuePageOp>(
+            .run_tolerating::<QueuePageOp>(
                 &conn.key,
                 queue_page::Variables {
                     limit: QUEUE_FETCH_LIMIT,
                     offset,
+                    with_scope: conn.flavor == Flavor::Sonarr,
                 },
+                is_queue_scope_error,
             )
             .await?;
         let page = data.download_queue_page;
+        let done = !page.has_more || page.items.is_empty();
         items.extend(page.items);
-        if !page.has_more {
+        if done {
             break;
         }
         offset += QUEUE_FETCH_LIMIT;
@@ -405,7 +418,7 @@ fn event_type(scryer_event: &str, flavor: Flavor) -> &'static str {
     let movie = flavor == Flavor::Radarr;
     match scryer_event.trim().to_ascii_lowercase().as_str() {
         "grabbed" => "grabbed",
-        "imported" => "downloadFolderImported",
+        "imported" | "file_upgraded" => "downloadFolderImported",
         "download_failed" | "import_failed" => "downloadFailed",
         "file_deleted" if movie => "movieFileDeleted",
         "file_deleted" => "episodeFileDeleted",
@@ -652,6 +665,11 @@ mod tests {
             ("grabbed", "grabbed", "grabbed"),
             (
                 "imported",
+                "downloadFolderImported",
+                "downloadFolderImported",
+            ),
+            (
+                "file_upgraded",
                 "downloadFolderImported",
                 "downloadFolderImported",
             ),

@@ -13,7 +13,8 @@ use crate::tofa::{
 /// The scryer event types the bridge forwards to tofa. scryer's `download`
 /// event is a download *failure* (its dispatcher builds it from
 /// `DownloadFailed`), so only `import_complete` and `upgrade` become tofa
-/// `Download`s.
+/// `Download`s, and an `import_complete` that an `upgrade` duplicates is
+/// skipped (see [`superseded_by_upgrade`]).
 pub fn relayed(event_type: E) -> bool {
     matches!(
         event_type,
@@ -34,6 +35,10 @@ pub fn to_tofa(req: &PluginNotificationRequest, flavor: Flavor) -> Option<TofaPa
         return Some(TofaPayload::event("Test"));
     }
 
+    if superseded_by_upgrade(req) {
+        return None;
+    }
+
     let mut p = match (req.event_type, movie) {
         (E::Grab, _) => TofaPayload::event("Grab"),
         (E::ImportComplete | E::Upgrade, _) => TofaPayload::event("Download"),
@@ -47,8 +52,10 @@ pub fn to_tofa(req: &PluginNotificationRequest, flavor: Flavor) -> Option<TofaPa
         _ => return None,
     };
 
+    // scryer sends `title_added` and `title_deleted` without a path; tofa
+    // treats the folder as optional and keys the title by its external id.
     let title = req.title.as_ref()?;
-    let path = title.path.clone()?;
+    let path = title.path.clone();
     if movie {
         let tmdb_id = title.external_ids.tmdb_id.as_deref()?.parse().ok()?;
         p.movie = Some(MoviePayload {
@@ -94,6 +101,21 @@ pub fn to_tofa(req: &PluginNotificationRequest, flavor: Flavor) -> Option<TofaPa
         _ => {}
     }
     Some(p)
+}
+
+/// scryer emits an `upgrade` event next to the `import_complete` for a file
+/// that replaced another, and both would become a tofa `Download`. The
+/// `upgrade` one is kept because it carries `deletedFiles`.
+///
+/// A series import sets `import.upgrade` when any one file in the batch was an
+/// upgrade, so only a single-file import is skipped: a batch can also hold new
+/// episodes that no `upgrade` event covers.
+fn superseded_by_upgrade(req: &PluginNotificationRequest) -> bool {
+    req.event_type == E::ImportComplete
+        && req
+            .import
+            .as_ref()
+            .is_some_and(|i| i.upgrade && i.imported_count.unwrap_or(1) <= 1)
 }
 
 /// Paths in `file.media_updates` of one kind, in order. These are library
@@ -167,7 +189,14 @@ fn set_file(
     if movie {
         p.movie_file = Some(FilePayload { path });
     } else {
-        let season_number = file_season(req, &path)?;
+        let Some(season_number) = file_season(req, &path) else {
+            tracing::debug!(
+                event_type = req.event_type.as_str(),
+                path,
+                "sonarr file event has no season for its file; dropped"
+            );
+            return None;
+        };
         p.episode_file = Some(EpisodeFilePayload {
             path,
             season_number,

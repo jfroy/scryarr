@@ -6,13 +6,15 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use scryer_plugin_sdk::{NotificationEventType, PluginNotificationRequest};
+use scryer_plugin_sdk::{
+    NotificationEventType, PluginNotificationRequest, PluginNotificationTitle,
+};
 use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
 use crate::AppState;
 use crate::domain::Facet;
-use crate::store::Notification;
+use crate::store::{Notification, Store};
 use crate::tofa::{self, DeliveryError};
 
 pub fn router() -> Router<AppState> {
@@ -61,7 +63,7 @@ async fn ingest(State(state): State<AppState>, Path(token): Path<String>, body: 
     if !translate::relayed(kind) {
         return dropped(&state);
     }
-    let req = match serde_json::from_value::<PluginNotificationRequest>(raw) {
+    let mut req = match serde_json::from_value::<PluginNotificationRequest>(raw) {
         Ok(req) => req,
         Err(e) => {
             tracing::warn!(event_type, error = %e, "malformed scryer event");
@@ -75,17 +77,30 @@ async fn ingest(State(state): State<AppState>, Path(token): Path<String>, body: 
             Err(e) => return internal(e),
         }
     } else {
-        let Some(title) = &req.title else {
+        let Some(title) = req.title.as_mut() else {
             return dropped(&state);
         };
-        let (Some(facet), Some(path)) = (parse_facet(&title.facet), title.path.as_deref()) else {
+        let Some(facet) = parse_facet(&title.facet) else {
             return dropped(&state);
         };
-        let library = match state.store.library_for_path(facet, path).await {
+        let library = match route(&state.store, facet, title).await {
             Ok(Some(l)) => l,
-            Ok(None) => return dropped(&state),
+            Ok(None) => {
+                tracing::debug!(
+                    event_type,
+                    title_id = title.id.as_deref(),
+                    "scryer event matches no library; dropped"
+                );
+                return dropped(&state);
+            }
             Err(e) => return internal(e),
         };
+        if req.event_type == NotificationEventType::TitleDeleted
+            && let Some(id) = title.id.as_deref()
+            && let Err(e) = state.store.forget_title(id).await
+        {
+            tracing::warn!(title_id = id, error = %e, "failed to forget deleted title");
+        }
         match state.store.notifications(&library).await {
             Ok(n) => n,
             Err(e) => return internal(e),
@@ -123,6 +138,44 @@ async fn ingest(State(state): State<AppState>, Path(token): Path<String>, body: 
         return resp;
     }
     acknowledged(delivered)
+}
+
+/// Picks the library an event belongs to: by root-folder prefix of the title's
+/// folder, else by the title id the bridge last saw the title under. scryer
+/// sends `title_added` (the folder does not exist yet) and `title_deleted` (the
+/// row is already gone) without a path, so those take the second route.
+///
+/// Routing by facet alone would be wrong: an HD and a 4K Radarr connection can
+/// both hold the same TMDB id, and both would get the event.
+///
+/// A path-routed event teaches the bridge the title's folder; an id-routed one
+/// without a path gets that folder back, so a delete still carries
+/// `folderPath` / `path`.
+async fn route(
+    store: &Store,
+    facet: Facet,
+    title: &mut PluginNotificationTitle,
+) -> Result<Option<String>, sqlx::Error> {
+    if let Some(path) = title.path.as_deref()
+        && let Some(library) = store.library_for_path(facet, path).await?
+    {
+        if let Some(id) = title.id.as_deref()
+            && let Err(e) = store.remember_title_path(id, &library, path).await
+        {
+            tracing::warn!(title_id = id, error = %e, "failed to record title library");
+        }
+        return Ok(Some(library));
+    }
+    let Some(id) = title.id.as_deref() else {
+        return Ok(None);
+    };
+    let Some((library, path)) = store.title_library(id).await? else {
+        return Ok(None);
+    };
+    if title.path.is_none() {
+        title.path = path;
+    }
+    Ok(Some(library))
 }
 
 fn internal(e: sqlx::Error) -> Response {

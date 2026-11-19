@@ -1,8 +1,22 @@
 {
   "schema_version": 1,
   "event_type": "title_deleted",
-  "summary_title": "title_deleted",
-  "summary_message": "title_deleted event",
-  "app": {"name": "scryer", "version": "0.22.4"},
-  "title": {"name": "Show", "facet": "series", "path": "/media2/library/tv/Show", "external_ids": {"tvdb_id": "81189"}}
+  "event_id": "evt-title-deleted-1",
+  "occurred_at": "2026-11-19T09:00:00+00:00",
+  "severity": "info",
+  "is_test": false,
+  "summary_title": "Deleted: Show",
+  "summary_message": "Deleted 'Show' from Scryer.",
+  "app": {"name": "Scryer", "version": "0.22.5"},
+  "title": {
+    "id": "t-show",
+    "name": "Show",
+    "facet": "series",
+    "year": 2008,
+    "external_ids": {
+      "tvdb_id": "81189",
+      "tmdb_id": "1396",
+      "by_source": {"tmdb": ["1396"], "tvdb": ["81189"]}
+    }
+  }
 }

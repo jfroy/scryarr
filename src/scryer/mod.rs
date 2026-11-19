@@ -48,7 +48,25 @@ impl ScryerClient {
         key: &ApiKey,
         vars: Q::Variables,
     ) -> Result<Q::ResponseData, AppError> {
-        self.counted(self.send::<Q>(key, Q::build_query(vars), false).await)
+        self.counted(
+            self.send::<Q>(key, Q::build_query(vars), false, |_| false)
+                .await,
+        )
+    }
+
+    /// Like `run`, but accepts a response that carries `data` when every
+    /// GraphQL error satisfies `tolerated`. Each tolerated error is logged as a
+    /// warning. Errors without `data`, or any other error, still fail.
+    pub async fn run_tolerating<Q: GraphQLQuery>(
+        &self,
+        key: &ApiKey,
+        vars: Q::Variables,
+        tolerated: impl Fn(&graphql_client::Error) -> bool,
+    ) -> Result<Q::ResponseData, AppError> {
+        self.counted(
+            self.send::<Q>(key, Q::build_query(vars), false, tolerated)
+                .await,
+        )
     }
 
     /// Like `run`, but drops every null variable before sending. Generated input
@@ -59,7 +77,10 @@ impl ScryerClient {
         key: &ApiKey,
         vars: Q::Variables,
     ) -> Result<Q::ResponseData, AppError> {
-        self.counted(self.send::<Q>(key, Q::build_query(vars), true).await)
+        self.counted(
+            self.send::<Q>(key, Q::build_query(vars), true, |_| false)
+                .await,
+        )
     }
 
     fn counted<T>(&self, result: Result<T, AppError>) -> Result<T, AppError> {
@@ -74,6 +95,7 @@ impl ScryerClient {
         key: &ApiKey,
         body: graphql_client::QueryBody<Q::Variables>,
         omit_nulls: bool,
+        tolerated: impl Fn(&graphql_client::Error) -> bool,
     ) -> Result<Q::ResponseData, AppError> {
         let mut payload = serde_json::to_value(&body)
             .map_err(|e| AppError::Internal(format!("serializing graphql request: {e}")))?;
@@ -116,7 +138,23 @@ impl ScryerClient {
             ))
         })?;
 
-        if let Some(first) = body.errors.as_ref().and_then(|e| e.first()) {
+        let errors = body.errors.unwrap_or_default();
+        if !errors.is_empty() && body.data.is_some() && errors.iter().all(tolerated) {
+            for e in &errors {
+                let path = e
+                    .path
+                    .iter()
+                    .flatten()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(".");
+                tracing::warn!(
+                    path,
+                    message = %e.message,
+                    "scryer returned a partial response; using its data"
+                );
+            }
+        } else if let Some(first) = errors.first() {
             let ext = |k: &str| {
                 first
                     .extensions
