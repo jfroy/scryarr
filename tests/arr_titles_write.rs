@@ -153,6 +153,10 @@ async fn post_movie_adds_title_and_searches() {
     let search = vars_of(&server, "TriggerSearch").await;
     assert_eq!(search[0]["input"]["titleId"], "m1");
     assert_eq!(search[0]["input"]["intent"], "AUTOMATIC");
+    assert_eq!(
+        st.store.title_library("m1").await.unwrap(),
+        Some(("L1".to_owned(), None))
+    );
     server.verify().await;
 }
 

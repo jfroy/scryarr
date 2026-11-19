@@ -212,7 +212,34 @@ fn grab_series_lists_episode_seasons() {
 fn title_deleted_series_translates() {
     let v = translate("title_deleted_series", Flavor::Sonarr).unwrap();
     assert_eq!(v["eventType"], "SeriesDelete");
-    assert_eq!(v["series"]["tvdbId"], 81189);
+    assert_eq!(v["series"], json!({"tvdbId": 81189}));
+}
+
+#[test]
+fn title_added_movie_translates_identity_only() {
+    let v = translate("title_added_movie", Flavor::Radarr).unwrap();
+    assert_eq!(v["eventType"], "MovieAdded");
+    assert_eq!(v["movie"], json!({"tmdbId": 949}));
+}
+
+#[test]
+fn import_complete_for_a_single_upgrade_is_left_to_the_upgrade_event() {
+    let mut req = request("upgrade_movie");
+    req.event_type = NotificationEventType::ImportComplete;
+    assert!(to_tofa(&req, Flavor::Radarr).is_none());
+
+    // A batch flags `upgrade` when any one file upgraded; its new files have
+    // no `upgrade` event of their own.
+    req.import.as_mut().unwrap().imported_count = Some(3);
+    assert!(to_tofa(&req, Flavor::Radarr).is_some());
+
+    req.import.as_mut().unwrap().imported_count = Some(1);
+    req.import.as_mut().unwrap().upgrade = false;
+    assert!(to_tofa(&req, Flavor::Radarr).is_some());
+
+    req.event_type = NotificationEventType::Upgrade;
+    req.import.as_mut().unwrap().upgrade = true;
+    assert!(to_tofa(&req, Flavor::Radarr).is_some());
 }
 
 #[test]
@@ -382,4 +409,134 @@ async fn test_event_fans_out_to_every_registration() {
     let (status, _, body) = post(&state, "test-token", body.to_string()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["delivered"], 1);
+}
+
+async fn register_at(state: &AppState, library: &str, flavor: Flavor, url: &str) {
+    state
+        .store
+        .insert_notification(
+            library,
+            flavor,
+            json!({"fields": [{"name": "url", "value": url}]}),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn title_deleted_without_path_is_routed_by_title_id() {
+    let tofa = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/tv"))
+        .and(body_partial_json(json!({
+            "eventType": "SeriesDelete",
+            "series": {"tvdbId": 81189, "path": "/media2/library/tv/Show"}
+        })))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&tofa)
+        .await;
+    let state = common::test_state().await;
+    register_at(&state, "TV", Flavor::Sonarr, &format!("{}/tv", tofa.uri())).await;
+    state
+        .store
+        .remember_title_path("t-show", "TV", "/media2/library/tv/Show")
+        .await
+        .unwrap();
+
+    let (status, _, body) = post(&state, "test-token", fixture("title_deleted_series")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["delivered"], 1);
+    assert_eq!(state.store.title_library("t-show").await.unwrap(), None);
+    tofa.verify().await;
+}
+
+#[tokio::test]
+async fn title_added_goes_only_to_the_titles_library() {
+    let tofa = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/4k"))
+        .and(body_partial_json(
+            json!({"eventType": "MovieAdded", "movie": {"tmdbId": 949}}),
+        ))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&tofa)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/hd"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&tofa)
+        .await;
+    let state = common::test_state().await;
+    register_at(&state, "HD", Flavor::Radarr, &format!("{}/hd", tofa.uri())).await;
+    register_at(&state, "4K", Flavor::Radarr, &format!("{}/4k", tofa.uri())).await;
+    state
+        .store
+        .remember_titles(&[("t-heat", "4K"), ("t-other", "HD")])
+        .await
+        .unwrap();
+
+    let (status, _, body) = post(&state, "test-token", fixture("title_added_movie")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["delivered"], 1);
+    tofa.verify().await;
+}
+
+#[tokio::test]
+async fn title_event_with_unknown_id_is_dropped() {
+    let tofa = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&tofa)
+        .await;
+    let state = common::test_state().await;
+    register(&state, &format!("{}/hook", tofa.uri())).await;
+    register_at(
+        &state,
+        "TV",
+        Flavor::Sonarr,
+        &format!("{}/hook", tofa.uri()),
+    )
+    .await;
+    state
+        .store
+        .remember_titles(&[("t-elsewhere", "L1")])
+        .await
+        .unwrap();
+
+    for name in ["title_added_movie", "title_deleted_series"] {
+        let (status, _, body) = post(&state, "test-token", fixture(name)).await;
+        assert_eq!(status, StatusCode::OK, "{name}");
+        assert_eq!(body["delivered"], 0, "{name}");
+    }
+    assert_eq!(
+        dropped_count(&state).await,
+        r#"scryarr_webhook_deliveries_total{result="dropped"} 2"#
+    );
+    tofa.verify().await;
+}
+
+#[tokio::test]
+async fn path_routed_event_records_the_titles_library_and_folder() {
+    let tofa = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&tofa)
+        .await;
+    let state = common::test_state().await;
+    register(&state, &format!("{}/hook", tofa.uri())).await;
+
+    let (status, _, body) = post(&state, "test-token", fixture("grab_movie")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["delivered"], 1);
+    assert_eq!(
+        state.store.title_library("t-heat").await.unwrap(),
+        Some((
+            "L1".to_owned(),
+            Some("/media2/library/movies/Heat (1995)".to_owned())
+        ))
+    );
 }

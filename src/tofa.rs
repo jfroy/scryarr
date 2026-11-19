@@ -48,14 +48,16 @@ impl TofaPayload {
 #[serde(rename_all = "camelCase")]
 pub struct MoviePayload {
     pub tmdb_id: i32,
-    pub folder_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SeriesPayload {
     pub tvdb_id: i32,
-    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

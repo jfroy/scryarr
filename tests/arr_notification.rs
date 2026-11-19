@@ -293,7 +293,7 @@ fn payload_skips_none_fields() {
         event_type: "Grab".into(),
         movie: Some(MoviePayload {
             tmdb_id: 1,
-            folder_path: "/m".into(),
+            folder_path: Some("/m".into()),
         }),
         ..Default::default()
     };
