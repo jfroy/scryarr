@@ -1,0 +1,1 @@
+mutation SetCollectionMonitored($input: SetCollectionMonitoredInput!) { setCollectionMonitored(input: $input) { id monitored } }

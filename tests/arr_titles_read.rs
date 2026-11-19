@@ -143,9 +143,9 @@ async fn series_by_tvdb_includes_seasons() {
             "episodesOwned": 3, "episodesMonitored": 4, "episodesTotal": 10,
             "createdAt": "2024-01-01T00:00:00Z", "posterUrl": null,
             "collections": [
-                {"collectionType": "SEASON", "collectionIndex": "2", "monitored": true,
+                {"id": "c2", "collectionType": "SEASON", "collectionIndex": "2", "monitored": true,
                  "episodesOwned": 3, "episodesMonitored": 4, "episodesTotal": 10, "episodes": []},
-                {"collectionType": "ARC", "collectionIndex": "x", "monitored": true,
+                {"id": "cx", "collectionType": "ARC", "collectionIndex": "x", "monitored": true,
                  "episodesOwned": 0, "episodesMonitored": 0, "episodesTotal": 0, "episodes": []}
             ],
             "mediaFiles": []
@@ -291,4 +291,28 @@ async fn series_lookup_new_uses_metadata() {
     assert_eq!(body[0]["seasons"].as_array().unwrap().len(), 2);
     assert_eq!(body[0]["seasons"][1]["seasonNumber"], 2);
     assert_eq!(body[0]["seasons"][1]["monitored"], false);
+}
+
+#[tokio::test]
+async fn movie_list_stops_on_empty_page() {
+    let (server, st) = setup("MOVIE").await;
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_partial_json(json!({"operationName": "TitlesPage"})))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"data": {"titles": {"items": [], "hasMore": true}}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (code, body) = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        get(&st, "/radarr/L1/api/v3/movie"),
+    )
+    .await
+    .expect("paging stops on an empty page");
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(body, json!([]));
+    server.verify().await;
 }

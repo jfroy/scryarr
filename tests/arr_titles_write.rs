@@ -310,11 +310,20 @@ fn series_detail(seasons: Vec<(&str, bool)>, monitored: bool) -> Value {
     t["collections"] =
         json!(seasons
         .into_iter()
-        .map(|(i, m)| json!({"collectionType": "SEASON", "collectionIndex": i, "monitored": m,
-            "episodesOwned": 0, "episodesMonitored": 0, "episodesTotal": 0, "episodes": []}))
+        .map(|(i, m)| json!({"id": format!("c{i}"), "collectionType": "SEASON", "collectionIndex": i,
+            "monitored": m, "episodesOwned": 0, "episodesMonitored": 0, "episodesTotal": 0,
+            "episodes": []}))
         .collect::<Vec<_>>());
     t["mediaFiles"] = json!([]);
     json!({"data": {"title": t}})
+}
+
+fn collection_result(id: &str, monitored: bool) -> Value {
+    json!({"data": {"setCollectionMonitored": {"id": id, "monitored": monitored}}})
+}
+
+fn set_monitored_result(monitored: bool) -> Value {
+    json!({"data": {"setTitleMonitored": title("s1", "SERIES", &[("tvdb", "81189")], Some("qp-uuid"), monitored)}})
 }
 
 #[tokio::test]
@@ -346,7 +355,14 @@ async fn put_series_updates_monitor_selection() {
         1,
     )
     .await;
-    expect_op(&server, "SetTitleMonitored", json!({"data": {"setTitleMonitored": title("s1", "SERIES", &[("tvdb", "81189")], Some("qp-uuid"), true)}}), 0).await;
+    expect_op(&server, "SetTitleMonitored", set_monitored_result(true), 0).await;
+    expect_op(
+        &server,
+        "SetCollectionMonitored",
+        collection_result("c1", false),
+        2,
+    )
+    .await;
     let body = json!({
         "id": 81189, "title": "Title s1", "tvdbId": 81189, "qualityProfileId": qpid,
         "monitored": true,
@@ -369,6 +385,280 @@ async fn put_series_updates_monitor_selection() {
         json!([2])
     );
     assert!(up[0]["input"]["options"].get("qualityProfileId").is_none());
+    let sc = vars_of(&server, "SetCollectionMonitored").await;
+    assert_eq!(
+        sc.iter().map(|v| v["input"].clone()).collect::<Vec<_>>(),
+        vec![
+            json!({"collectionId": "c1", "monitored": false}),
+            json!({"collectionId": "c2", "monitored": true}),
+        ]
+    );
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn put_series_monitors_only_changed_seasons() {
+    let (server, st) = setup("SERIES").await;
+    mock_op(
+        &server,
+        "TitlesByExternalIds",
+        by_ext(vec![title(
+            "s1",
+            "SERIES",
+            &[("tvdb", "81189")],
+            Some("qp-uuid"),
+            false,
+        )]),
+    )
+    .await;
+    mock_op(
+        &server,
+        "TitleDetail",
+        series_detail(vec![("1", true), ("2", false), ("3", false)], false),
+    )
+    .await;
+    mock_op(
+        &server,
+        "UpdateTitle",
+        json!({"data": {"updateTitle": title("s1", "SERIES", &[("tvdb", "81189")], Some("qp-uuid"), false)}}),
+    )
+    .await;
+    expect_op(
+        &server,
+        "SetCollectionMonitored",
+        collection_result("c2", true),
+        1,
+    )
+    .await;
+    expect_op(&server, "SetTitleMonitored", set_monitored_result(true), 0).await;
+    let body = json!({
+        "id": 81189, "tvdbId": 81189,
+        "seasons": [
+            {"seasonNumber": 1, "monitored": true},
+            {"seasonNumber": 2, "monitored": true},
+            {"seasonNumber": 3, "monitored": false}
+        ]
+    });
+    let (code, resp) = send(
+        &st,
+        Method::PUT,
+        "/sonarr/L1/api/v3/series/81189",
+        Some(body),
+    )
+    .await;
+    assert_eq!(code, StatusCode::ACCEPTED, "{resp}");
+    let sc = vars_of(&server, "SetCollectionMonitored").await;
+    assert_eq!(
+        sc[0]["input"],
+        json!({"collectionId": "c2", "monitored": true})
+    );
+    let up = vars_of(&server, "UpdateTitle").await;
+    assert_eq!(
+        up[0]["input"]["options"]["monitorSelection"]["seasonNumbers"],
+        json!([1, 2])
+    );
+    let details = vars_of(&server, "TitleDetail").await;
+    assert_eq!(details.len(), 2, "detail is re-read after the change");
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn put_series_with_unchanged_seasons_mutates_nothing() {
+    let (server, st) = setup("SERIES").await;
+    mock_op(
+        &server,
+        "TitlesByExternalIds",
+        by_ext(vec![title(
+            "s1",
+            "SERIES",
+            &[("tvdb", "81189")],
+            Some("qp-uuid"),
+            false,
+        )]),
+    )
+    .await;
+    mock_op(
+        &server,
+        "TitleDetail",
+        series_detail(vec![("1", true), ("2", false)], false),
+    )
+    .await;
+    expect_op(
+        &server,
+        "SetCollectionMonitored",
+        collection_result("c1", true),
+        0,
+    )
+    .await;
+    expect_op(&server, "SetTitleMonitored", set_monitored_result(true), 0).await;
+    expect_op(
+        &server,
+        "UpdateTitle",
+        json!({"data": {"updateTitle": title("s1", "SERIES", &[("tvdb", "81189")], Some("qp-uuid"), false)}}),
+        0,
+    )
+    .await;
+    let body = json!({
+        "id": 81189, "tvdbId": 81189,
+        "seasons": [{"seasonNumber": 1, "monitored": true}, {"seasonNumber": 2, "monitored": false}]
+    });
+    let (code, resp) = send(
+        &st,
+        Method::PUT,
+        "/sonarr/L1/api/v3/series/81189",
+        Some(body),
+    )
+    .await;
+    assert_eq!(code, StatusCode::ACCEPTED, "{resp}");
+    assert_eq!(resp["monitored"], false);
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn post_series_reused_applies_seasons_and_monitors_title() {
+    let (server, st) = setup("SERIES").await;
+    let qpid = qp(&st, "qp-uuid").await;
+    mock_op(
+        &server,
+        "MetadataSeries",
+        json!({"data": {"metadataSeries": {
+            "name": "Show", "slug": "show", "year": 2010, "overview": "series meta",
+            "posterUrl": "", "tvdbId": "81189", "tmdbId": 1, "network": "N", "seasons": []
+        }}}),
+    )
+    .await;
+    mock_op(
+        &server,
+        "AddTitle",
+        add_result(
+            title("s1", "SERIES", &[("tvdb", "81189")], Some("qp-uuid"), false),
+            true,
+        ),
+    )
+    .await;
+    mock_op(
+        &server,
+        "TitleDetail",
+        series_detail(vec![("1", true), ("2", false)], false),
+    )
+    .await;
+    mock_op(
+        &server,
+        "UpdateTitle",
+        json!({"data": {"updateTitle": title("s1", "SERIES", &[("tvdb", "81189")], Some("qp-uuid"), false)}}),
+    )
+    .await;
+    expect_op(
+        &server,
+        "SetCollectionMonitored",
+        collection_result("c2", true),
+        1,
+    )
+    .await;
+    expect_op(&server, "SetTitleMonitored", set_monitored_result(true), 1).await;
+    let body = json!({
+        "title": "Show", "tvdbId": 81189, "qualityProfileId": qpid, "monitored": true,
+        "seasons": [{"seasonNumber": 1, "monitored": true}, {"seasonNumber": 2, "monitored": true}]
+    });
+    let (code, resp) = send(&st, Method::POST, "/sonarr/L1/api/v3/series", Some(body)).await;
+    assert_eq!(code, StatusCode::CREATED, "{resp}");
+    assert_eq!(resp["monitored"], true);
+    let sc = vars_of(&server, "SetCollectionMonitored").await;
+    assert_eq!(
+        sc[0]["input"],
+        json!({"collectionId": "c2", "monitored": true})
+    );
+    let sm = vars_of(&server, "SetTitleMonitored").await;
+    assert_eq!(sm[0]["input"], json!({"titleId": "s1", "monitored": true}));
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn post_movie_reused_monitors_unmonitored_title() {
+    let (server, st) = setup("MOVIE").await;
+    let qpid = qp(&st, "qp-uuid").await;
+    mock_op(&server, "MetadataMovie", movie_metadata()).await;
+    mock_op(
+        &server,
+        "AddTitle",
+        add_result(
+            title("m1", "MOVIE", &[("tmdb", "603")], Some("qp-uuid"), false),
+            true,
+        ),
+    )
+    .await;
+    expect_op(
+        &server,
+        "SetTitleMonitored",
+        json!({"data": {"setTitleMonitored": title("m1", "MOVIE", &[("tmdb", "603")], Some("qp-uuid"), true)}}),
+        1,
+    )
+    .await;
+    let mut body = movie_body(false);
+    body["qualityProfileId"] = json!(qpid);
+    let (code, resp) = send(&st, Method::POST, "/radarr/L1/api/v3/movie", Some(body)).await;
+    assert_eq!(code, StatusCode::CREATED, "{resp}");
+    assert_eq!(resp["monitored"], true);
+    let sm = vars_of(&server, "SetTitleMonitored").await;
+    assert_eq!(sm[0]["input"], json!({"titleId": "m1", "monitored": true}));
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn post_movie_new_title_does_not_touch_monitored() {
+    let (server, st) = setup("MOVIE").await;
+    let qpid = qp(&st, "qp-uuid").await;
+    mock_op(&server, "MetadataMovie", movie_metadata()).await;
+    mock_op(
+        &server,
+        "AddTitle",
+        add_result(
+            title("m1", "MOVIE", &[("tmdb", "603")], Some("qp-uuid"), false),
+            false,
+        ),
+    )
+    .await;
+    expect_op(
+        &server,
+        "SetTitleMonitored",
+        json!({"data": {"setTitleMonitored": title("m1", "MOVIE", &[("tmdb", "603")], Some("qp-uuid"), true)}}),
+        0,
+    )
+    .await;
+    let mut body = movie_body(false);
+    body["qualityProfileId"] = json!(qpid);
+    let (code, _) = send(&st, Method::POST, "/radarr/L1/api/v3/movie", Some(body)).await;
+    assert_eq!(code, StatusCode::CREATED);
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn put_movie_without_monitored_leaves_it_alone() {
+    let (server, st) = setup("MOVIE").await;
+    let old = qp(&st, "qp-old").await;
+    mock_op(
+        &server,
+        "TitlesByExternalIds",
+        by_ext(vec![title(
+            "m1",
+            "MOVIE",
+            &[("tmdb", "603")],
+            Some("qp-old"),
+            false,
+        )]),
+    )
+    .await;
+    expect_op(
+        &server,
+        "SetTitleMonitored",
+        json!({"data": {"setTitleMonitored": title("m1", "MOVIE", &[("tmdb", "603")], Some("qp-old"), true)}}),
+        0,
+    )
+    .await;
+    let body = json!({"id": 603, "tmdbId": 603, "qualityProfileId": old});
+    let (code, resp) = send(&st, Method::PUT, "/radarr/L1/api/v3/movie/603", Some(body)).await;
+    assert_eq!(code, StatusCode::ACCEPTED, "{resp}");
+    assert_eq!(resp["monitored"], false);
     server.verify().await;
 }
 

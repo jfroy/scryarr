@@ -60,6 +60,7 @@ pub struct EpisodeView {
 
 #[derive(Debug, Clone)]
 pub struct Season {
+    pub id: String,
     pub index: String,
     pub kind: CollectionKind,
     pub monitored: bool,
@@ -139,6 +140,7 @@ impl From<title_detail::TitleDetailTitle> for TitleDetail {
             .collections
             .into_iter()
             .map(|c| Season {
+                id: c.id,
                 index: c.collection_index,
                 kind: match enum_string(&c.collection_type).as_deref() {
                     Some("SEASON") => CollectionKind::Season,

@@ -88,12 +88,12 @@ fn detail_resp() -> Value {
     let mut t = title("T1", "SERIES", &[("tvdb", "81189")], None, true);
     let o = t.as_object_mut().unwrap();
     o.insert("collections".into(), json!([
-        {"collectionType":"SEASON","collectionIndex":"1","monitored":true,"episodesOwned":1,"episodesMonitored":2,"episodesTotal":2,
+        {"id":"c1","collectionType":"SEASON","collectionIndex":"1","monitored":true,"episodesOwned":1,"episodesMonitored":2,"episodesTotal":2,
          "episodes":[
             {"id":"e11","seasonNumber":"1","episodeNumber":"1","title":"Pilot","airDate":"2020-01-01","monitored":true,
              "mediaFiles":[{"id":"f11","filePath":"/tv/s1e1.mkv"}]},
             {"id":"e12","seasonNumber":"1","episodeNumber":"2","title":"Two","airDate":null,"monitored":false,"mediaFiles":[]}]},
-        {"collectionType":"SEASON","collectionIndex":"2","monitored":true,"episodesOwned":0,"episodesMonitored":2,"episodesTotal":2,
+        {"id":"c2","collectionType":"SEASON","collectionIndex":"2","monitored":true,"episodesOwned":0,"episodesMonitored":2,"episodesTotal":2,
          "episodes":[
             {"id":"e21","seasonNumber":"2","episodeNumber":"1","title":"Three","airDate":"2021-01-01","monitored":true,"mediaFiles":[]},
             {"id":"e2x","seasonNumber":"2","episodeNumber":"x","title":"Bad","airDate":null,"monitored":true,"mediaFiles":[]}]}

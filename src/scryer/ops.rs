@@ -200,3 +200,11 @@ pub struct DeleteEpisodeFilesPreview;
     response_derives = "Debug, Clone"
 )]
 pub struct DeleteEpisodeFiles;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "graphql/schema.graphql",
+    query_path = "graphql/set_collection_monitored.graphql",
+    response_derives = "Debug, Clone"
+)]
+pub struct SetCollectionMonitored;

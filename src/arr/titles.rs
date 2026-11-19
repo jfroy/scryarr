@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -10,11 +12,13 @@ use crate::AppState;
 use crate::domain::{Facet, Flavor};
 use crate::error::AppError;
 use crate::scryer;
+use crate::scryer::CollectionKind;
 use crate::scryer::ops::{
-    AddTitle, DeleteTitle, MetadataMovie, MetadataSeries, SetTitleMonitored, TitleDetail,
-    TitlesByExternalIds, TitlesPage, TriggerSearch, UpdateTitle, add_title, delete_title,
-    metadata_movie, metadata_series, set_title_monitored, title_detail, titles_by_external_ids,
-    titles_page, trigger_search, update_title,
+    AddTitle, DeleteTitle, MetadataMovie, MetadataSeries, SetCollectionMonitored,
+    SetTitleMonitored, TitleDetail, TitlesByExternalIds, TitlesPage, TriggerSearch, UpdateTitle,
+    add_title, delete_title, metadata_movie, metadata_series, set_collection_monitored,
+    set_title_monitored, title_detail, titles_by_external_ids, titles_page, trigger_search,
+    update_title,
 };
 use crate::store::IdKind;
 
@@ -96,8 +100,9 @@ async fn all_titles(st: &AppState, conn: &Conn) -> Result<Vec<scryer::Title>, Ap
                 },
             )
             .await?;
+        let done = !data.titles.has_more || data.titles.items.is_empty();
         out.extend(data.titles.items.into_iter().map(scryer::Title::from));
-        if !data.titles.has_more {
+        if done {
             return Ok(out);
         }
         offset += PAGE_SIZE;
@@ -383,8 +388,7 @@ pub struct MovieWrite {
     title_slug: Option<String>,
     #[serde(default)]
     quality_profile_id: i32,
-    #[serde(default = "default_true")]
-    monitored: bool,
+    monitored: Option<bool>,
     minimum_availability: Option<String>,
     year: Option<i64>,
     overview: Option<String>,
@@ -410,8 +414,7 @@ pub struct SeriesWrite {
     title_slug: Option<String>,
     #[serde(default)]
     quality_profile_id: i32,
-    #[serde(default = "default_true")]
-    monitored: bool,
+    monitored: Option<bool>,
     year: Option<i64>,
     overview: Option<String>,
     #[serde(default)]
@@ -429,8 +432,39 @@ fn scryer_availability(v: Option<&str>) -> Option<String> {
     }
 }
 
-fn default_true() -> bool {
-    true
+fn season_number(s: &scryer::Season) -> Option<i32> {
+    if s.kind == CollectionKind::Season {
+        s.index.trim().parse().ok()
+    } else {
+        None
+    }
+}
+
+fn current_seasons(d: &scryer::TitleDetail) -> Vec<i64> {
+    let mut v: Vec<i64> = d
+        .seasons
+        .iter()
+        .filter(|s| s.monitored)
+        .filter_map(season_number)
+        .map(i64::from)
+        .collect();
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
+fn collection_changes(d: &scryer::TitleDetail, seasons: &[SeasonWrite]) -> Vec<(String, bool)> {
+    let wanted: HashMap<i32, bool> = seasons
+        .iter()
+        .map(|s| (s.season_number, s.monitored))
+        .collect();
+    d.seasons
+        .iter()
+        .filter_map(|s| {
+            let want = *wanted.get(&season_number(s)?)?;
+            (want != s.monitored).then(|| (s.id.clone(), want))
+        })
+        .collect()
 }
 
 fn monitored_seasons(seasons: &[SeasonWrite]) -> Vec<i64> {
@@ -577,7 +611,7 @@ pub async fn add_movie(
                     &conn,
                     add_title::MediaFacetValue::MOVIE,
                     body.title.clone(),
-                    body.monitored,
+                    body.monitored.unwrap_or(true),
                     add_options_input(
                         Some(qp),
                         scryer_availability(body.minimum_availability.as_deref()),
@@ -593,7 +627,10 @@ pub async fn add_movie(
             },
         )
         .await?;
-    let t = scryer::Title::from(data.add_title.title);
+    let mut t = scryer::Title::from(data.add_title.title);
+    if data.add_title.reused_existing_title && body.monitored.unwrap_or(true) && !t.monitored {
+        t = set_monitored(&st, &conn, &t.id, true).await?;
+    }
     if body.add_options.search_for_movie {
         search(&st, &conn, &t.id).await?;
     }
@@ -651,7 +688,7 @@ pub async fn add_series(
                     &conn,
                     facet,
                     body.title.clone(),
-                    body.monitored,
+                    body.monitored.unwrap_or(true),
                     add_options_input(Some(qp), None, monitor_type, monitor_selection),
                     None,
                     Some(tvdb.to_string()),
@@ -662,12 +699,26 @@ pub async fn add_series(
             },
         )
         .await?;
-    let t = scryer::Title::from(data.add_title.title);
+    let mut t = scryer::Title::from(data.add_title.title);
+    let mut d = None;
+    if data.add_title.reused_existing_title {
+        let mut current = detail(&st, &conn, &t).await?;
+        if apply_seasons(&st, &conn, &current, &body.seasons, None).await? {
+            current = detail(&st, &conn, &t).await?;
+        }
+        if body.monitored.unwrap_or(true) && !current.title.monitored {
+            current.title = set_monitored(&st, &conn, &t.id, true).await?;
+        }
+        t = current.title.clone();
+        d = Some(current);
+    }
     if body.add_options.search_for_missing_episodes {
         search(&st, &conn, &t.id).await?;
     }
     let qp_arr = qp_id(&st, &conn, &t).await?;
-    let d = detail(&st, &conn, &t).await.ok();
+    if d.is_none() {
+        d = detail(&st, &conn, &t).await.ok();
+    }
     convert::series(&t, d.as_ref(), qp_arr)
         .map(|s| (StatusCode::CREATED, Json(s)))
         .ok_or_else(|| AppError::Upstream("scryer title has no tvdb id".into()))
@@ -692,6 +743,65 @@ async fn set_monitored(
         )
         .await?;
     Ok(data.set_title_monitored.into())
+}
+
+async fn set_collection(
+    st: &AppState,
+    conn: &Conn,
+    collection_id: &str,
+    monitored: bool,
+) -> Result<(), AppError> {
+    st.scryer
+        .run::<SetCollectionMonitored>(
+            &conn.key,
+            set_collection_monitored::Variables {
+                input: set_collection_monitored::SetCollectionMonitoredInput {
+                    collection_id: collection_id.to_string(),
+                    monitored,
+                },
+            },
+        )
+        .await?;
+    Ok(())
+}
+
+/// Brings a series scryer already has in line with tofa's per-season choices.
+///
+/// scryer stores an advanced monitor selection on the title, but reads it only
+/// when it first creates collections. Seasons that already exist are switched
+/// one by one with `setCollectionMonitored`, which cascades to their episodes
+/// and syncs wanted items; the selection is still written so seasons that
+/// appear later follow it. Returns whether anything was changed.
+async fn apply_seasons(
+    st: &AppState,
+    conn: &Conn,
+    d: &scryer::TitleDetail,
+    seasons: &[SeasonWrite],
+    quality_profile: Option<String>,
+) -> Result<bool, AppError> {
+    let selection = monitored_seasons(seasons);
+    let selection_change = !seasons.is_empty() && selection != current_seasons(d);
+    let mut mutated = false;
+    if quality_profile.is_some() || selection_change {
+        update_options(
+            st,
+            conn,
+            &d.title.id,
+            update_options_input(
+                quality_profile,
+                None,
+                selection_change.then_some(update_title::MonitorTypeValue::ADVANCED),
+                selection_change.then_some(selection),
+            ),
+        )
+        .await?;
+        mutated = true;
+    }
+    for (collection_id, monitored) in collection_changes(d, seasons) {
+        set_collection(st, conn, &collection_id, monitored).await?;
+        mutated = true;
+    }
+    Ok(mutated)
 }
 
 async fn update_options(
@@ -748,8 +858,10 @@ pub async fn update_movie(
         )
         .await?;
     }
-    if body.monitored != t.monitored {
-        t = set_monitored(&st, &conn, &t.id, body.monitored).await?;
+    if let Some(monitored) = body.monitored
+        && monitored != t.monitored
+    {
+        t = set_monitored(&st, &conn, &t.id, monitored).await?;
     }
     let qp = qp_id(&st, &conn, &t).await?;
     convert::movie(&t, qp)
@@ -764,43 +876,19 @@ pub async fn update_series(
     Json(body): Json<SeriesWrite>,
 ) -> Result<(StatusCode, Json<SonarrSeries>), AppError> {
     require(&conn, Flavor::Sonarr)?;
-    let mut t = find_title(&st, &conn, id).await?;
+    let t = find_title(&st, &conn, id).await?;
     let qp_change = changed_quality_profile(&st, &conn, &t, body.quality_profile_id).await?;
     let mut d = detail(&st, &conn, &t).await?;
-    let selection = monitored_seasons(&body.seasons);
-    let mut current: Vec<i64> = d
-        .seasons
-        .iter()
-        .filter(|s| s.kind == scryer::CollectionKind::Season && s.monitored)
-        .filter_map(|s| s.index.trim().parse().ok())
-        .collect();
-    current.sort_unstable();
-    let selection_change = !body.seasons.is_empty() && selection != current;
-    let mut mutated = false;
-    if qp_change.is_some() || selection_change {
-        t = update_options(
-            &st,
-            &conn,
-            &t.id,
-            update_options_input(
-                qp_change,
-                None,
-                selection_change.then_some(update_title::MonitorTypeValue::ADVANCED),
-                selection_change.then_some(selection),
-            ),
-        )
-        .await?;
-        mutated = true;
-    }
-    if body.monitored != t.monitored {
-        t = set_monitored(&st, &conn, &t.id, body.monitored).await?;
-        mutated = true;
-    }
-    if mutated {
+    if apply_seasons(&st, &conn, &d, &body.seasons, qp_change).await? {
         d = detail(&st, &conn, &t).await?;
     }
-    let qp = qp_id(&st, &conn, &t).await?;
-    convert::series(&t, Some(&d), qp)
+    if let Some(monitored) = body.monitored
+        && monitored != d.title.monitored
+    {
+        d.title = set_monitored(&st, &conn, &t.id, monitored).await?;
+    }
+    let qp = qp_id(&st, &conn, &d.title).await?;
+    convert::series(&d.title, Some(&d), qp)
         .map(|s| (StatusCode::ACCEPTED, Json(s)))
         .ok_or_else(|| AppError::NotFound("title not found".into()))
 }

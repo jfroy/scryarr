@@ -144,7 +144,7 @@ async fn title_detail_converts_to_views() {
         "imdbId":null,"qualityProfileId":null,"rootFolderPath":"/tv","minAvailability":null,
         "monitorType":"ALL_EPISODES","sizeBytes":10,"episodesOwned":1,"episodesMonitored":2,
         "episodesTotal":2,"createdAt":"2026-01-01T00:00:00Z","posterUrl":null,
-        "collections":[{"collectionType":"SEASON","collectionIndex":"1","monitored":true,
+        "collections":[{"id":"c1","collectionType":"SEASON","collectionIndex":"1","monitored":true,
             "episodesOwned":1,"episodesMonitored":2,"episodesTotal":2,
             "episodes":[{"id":"e1","seasonNumber":"1","episodeNumber":"1","title":"Pilot",
                 "airDate":"2020-01-01","monitored":true,"mediaFiles":[{"id":"f1","filePath":"/tv/a.mkv"}]}]}],
