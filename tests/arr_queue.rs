@@ -8,7 +8,8 @@ use http_body_util::BodyExt;
 use scryarr::AppState;
 use serde_json::{Value, json};
 use tower::ServiceExt;
-use wiremock::MockServer;
+use wiremock::matchers::{body_partial_json, method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 async fn send(state: &AppState, m: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
     let mut b = Request::builder()
@@ -64,7 +65,7 @@ fn qitem(item: &str, title_id: &str, lib: &str, state: &str, tmdb: &str) -> Valu
         "downloadClientItemId": item, "downloadId": format!("dl-{item}"),
         "displayState": state, "trackedState": null,
         "progressPercent": 25, "sizeBytes": 1000, "remainingSeconds": 3725,
-        "sourceProvider": null,
+        "sourceProvider": null, "queueScope": null,
         "title": {"id": title_id, "libraryId": lib,
                   "externalIds": [{"source": "tmdb", "value": tmdb}]}
     })
@@ -204,11 +205,13 @@ async fn history_failed_resolves_client_type() {
         &server,
         "TitleHistory",
         json!({"data": {"titleHistory": {"hasMore": false, "items": [{
-            "id": "h1", "titleId": "T1", "episodeId": null, "eventType": "GRABBED",
+            "id": "h1", "titleId": "T1", "episodeId": null, "episodeIds": [], "collectionId": null,
+            "eventType": "grabbed",
             "sourceTitle": "Rel", "quality": null, "downloadId": "dl-x", "clientId": "c9",
             "occurredAt": "2024-02-02T00:00:00Z"
         }, {
-            "id": "h2", "titleId": "T1", "episodeId": null, "eventType": "IMPORTED",
+            "id": "h2", "titleId": "T1", "episodeId": null, "episodeIds": [], "collectionId": null,
+            "eventType": "imported",
             "sourceTitle": "Rel", "quality": null, "downloadId": "dl-x", "clientId": "c9",
             "occurredAt": "2024-02-03T00:00:00Z"
         }]}}}),
@@ -330,4 +333,189 @@ async fn command_unknown_is_400() {
     )
     .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+fn series_detail(id: &str) -> Value {
+    let mut t = title(id, "L1", "SERIES", &[("tvdb", "81189")]);
+    let ep = |id: &str, s: &str, n: &str| {
+        json!({"id": id, "seasonNumber": s, "episodeNumber": n, "title": null, "airDate": null,
+               "monitored": true, "mediaFiles": []})
+    };
+    t["collections"] = json!([
+        {"id": "c1", "collectionType": "SEASON", "collectionIndex": "1", "monitored": true,
+         "episodesOwned": 0, "episodesMonitored": 2, "episodesTotal": 2,
+         "episodes": [ep("e1", "1", "1"), ep("e2", "1", "2")]},
+        {"id": "c2", "collectionType": "SEASON", "collectionIndex": "2", "monitored": true,
+         "episodesOwned": 0, "episodesMonitored": 1, "episodesTotal": 1,
+         "episodes": [ep("e3", "2", "1")]}
+    ]);
+    t["mediaFiles"] = json!([]);
+    json!({"data": {"title": t}})
+}
+
+async fn mock_detail(server: &MockServer, id: &str, resp: ResponseTemplate) {
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_partial_json(
+            json!({"operationName": "TitleDetail", "variables": {"id": id}}),
+        ))
+        .respond_with(resp)
+        .mount(server)
+        .await;
+}
+
+fn series_qitem(item: &str, title_id: &str, episode: Option<&str>, scope: Value) -> Value {
+    let mut v = qitem(item, title_id, "L1", "DOWNLOADING", "0");
+    v["facet"] = json!("series");
+    v["episodeId"] = json!(episode);
+    v["queueScope"] = scope;
+    v["title"]["externalIds"] = json!([{"source": "tvdb", "value": "81189"}]);
+    v
+}
+
+#[tokio::test]
+async fn queue_resolves_season_from_scope() {
+    let (server, state) = setup("SERIES").await;
+    mock_op(
+        &server,
+        "QueuePage",
+        queue_resp(vec![
+            series_qitem(
+                "pack",
+                "T1",
+                None,
+                json!({"__typename": "CollectionScopePayload", "collectionId": "c2"}),
+            ),
+            series_qitem(
+                "set",
+                "T1",
+                None,
+                json!({"__typename": "EpisodeSetScopePayload", "episodeIds": ["e1", "e2"]}),
+            ),
+            series_qitem("ep", "T1", Some("e3"), Value::Null),
+            series_qitem(
+                "mixed",
+                "T1",
+                None,
+                json!({"__typename": "EpisodeSetScopePayload", "episodeIds": ["e1", "e3"]}),
+            ),
+            series_qitem(
+                "broken",
+                "T2",
+                None,
+                json!({"__typename": "CollectionScopePayload", "collectionId": "c9"}),
+            ),
+            series_qitem("none", "T1", None, Value::Null),
+        ]),
+    )
+    .await;
+    mock_detail(
+        &server,
+        "T1",
+        ResponseTemplate::new(200).set_body_json(series_detail("T1")),
+    )
+    .await;
+    mock_detail(&server, "T2", ResponseTemplate::new(500)).await;
+    let (s, v) = send(
+        &state,
+        Method::GET,
+        "/sonarr/L1/api/v3/queue?pageSize=20",
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let seasons: Vec<Value> = v["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["seasonNumber"].clone())
+        .collect();
+    assert_eq!(
+        seasons,
+        vec![
+            json!(2),
+            json!(1),
+            json!(2),
+            Value::Null,
+            Value::Null,
+            Value::Null
+        ]
+    );
+    assert!(v["records"][2]["episodeId"].is_i64());
+    assert!(v["records"][0]["episodeId"].is_null());
+    assert_eq!(v["records"][0]["seriesId"], 81189);
+}
+
+#[tokio::test]
+async fn history_series_filters_on_resolved_season() {
+    let (server, state) = setup("SERIES").await;
+    let h = |id: &str, episode: Option<&str>, episodes: &[&str], collection: Option<&str>| {
+        json!({"id": id, "titleId": "T1", "episodeId": episode, "episodeIds": episodes,
+               "collectionId": collection, "eventType": "grabbed", "sourceTitle": id,
+               "quality": null, "downloadId": null, "clientId": null,
+               "occurredAt": "2024-02-02T00:00:00Z"})
+    };
+    mock_op(
+        &server,
+        "TitleHistory",
+        json!({"data": {"titleHistory": {"hasMore": false, "items": [
+            h("ep1", Some("e1"), &[], None),
+            h("set2", None, &["e3"], None),
+            h("pack2", None, &[], Some("c2")),
+            h("pack1", None, &["e1", "e2"], Some("c1")),
+            h("bare", None, &[], None),
+        ]}}}),
+    )
+    .await;
+    mock_op(
+        &server,
+        "TitlesByExternalIds",
+        json!({"data": {"titlesByExternalIds": [title("T1", "L1", "SERIES", &[("tvdb", "81189")])]}}),
+    )
+    .await;
+    mock_detail(
+        &server,
+        "T1",
+        ResponseTemplate::new(200).set_body_json(series_detail("T1")),
+    )
+    .await;
+    let (s, v) = send(
+        &state,
+        Method::GET,
+        "/sonarr/L1/api/v3/history/series?seriesId=81189&seasonNumber=2",
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let titles: Vec<&str> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["sourceTitle"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, vec!["set2", "pack2"]);
+
+    let (_, v) = send(
+        &state,
+        Method::GET,
+        "/sonarr/L1/api/v3/history/series?seriesId=81189&seasonNumber=1",
+        None,
+    )
+    .await;
+    let titles: Vec<&str> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["sourceTitle"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, vec!["ep1", "pack1"]);
+
+    let (_, v) = send(
+        &state,
+        Method::GET,
+        "/sonarr/L1/api/v3/history/series?seriesId=81189",
+        None,
+    )
+    .await;
+    assert_eq!(v.as_array().unwrap().len(), 5);
 }

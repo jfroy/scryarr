@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -15,6 +15,7 @@ use crate::AppState;
 use crate::domain::Flavor;
 use crate::error::AppError;
 use crate::scryer;
+use crate::scryer::CollectionKind;
 use crate::scryer::ops::{
     DeleteDownload, IgnoreDownload, MarkFailed, QueuePage as QueuePageOp, TitleDetail,
     TitleDownloads, TitleHistory, TriggerSearch, delete_download, ignore_download, mark_failed,
@@ -95,35 +96,116 @@ fn parse_num(s: &Option<String>) -> Option<i32> {
     s.as_deref().and_then(|s| s.trim().parse().ok())
 }
 
-async fn season_of(
+/// Where a title's episodes and SEASON collections sit, for resolving the
+/// season of a queue item or history event that does not name one episode.
+#[derive(Default)]
+struct SeasonIndex {
+    episodes: HashMap<String, i32>,
+    collections: HashMap<String, i32>,
+}
+
+impl SeasonIndex {
+    fn new(d: &scryer::TitleDetail) -> Self {
+        let mut idx = SeasonIndex::default();
+        for s in &d.seasons {
+            if s.kind == CollectionKind::Season
+                && let Ok(n) = s.index.trim().parse()
+            {
+                idx.collections.insert(s.id.clone(), n);
+            }
+            for e in &s.episodes {
+                if let Some(n) = parse_num(&e.season_number) {
+                    idx.episodes.insert(e.id.clone(), n);
+                }
+            }
+        }
+        idx
+    }
+
+    /// The episode's season, else the one season shared by `episode_ids`,
+    /// else the SEASON collection's index.
+    fn season(
+        &self,
+        episode_id: Option<&str>,
+        episode_ids: &[String],
+        collection_id: Option<&str>,
+    ) -> Option<i32> {
+        if let Some(&n) = episode_id.and_then(|e| self.episodes.get(e)) {
+            return Some(n);
+        }
+        let shared: BTreeSet<i32> = episode_ids
+            .iter()
+            .filter_map(|e| self.episodes.get(e).copied())
+            .collect();
+        if shared.len() == 1 {
+            return shared.into_iter().next();
+        }
+        collection_id.and_then(|c| self.collections.get(c).copied())
+    }
+}
+
+async fn fetch_season_index(
     st: &AppState,
     conn: &Conn,
-    cache: &mut HashMap<String, scryer::TitleDetail>,
     title_id: &str,
-    episode_id: &str,
-) -> Result<Option<i32>, AppError> {
+) -> Result<Option<SeasonIndex>, AppError> {
+    let data = st
+        .scryer
+        .run::<TitleDetail>(
+            &conn.key,
+            title_detail::Variables {
+                id: title_id.to_string(),
+            },
+        )
+        .await?;
+    Ok(data.title.map(|t| SeasonIndex::new(&t.into())))
+}
+
+/// Cached per title. A title whose detail cannot be read resolves no season
+/// rather than failing the whole queue.
+async fn season_index<'c>(
+    st: &AppState,
+    conn: &Conn,
+    cache: &'c mut HashMap<String, Option<SeasonIndex>>,
+    title_id: &str,
+) -> Option<&'c SeasonIndex> {
     if !cache.contains_key(title_id) {
-        let data = st
-            .scryer
-            .run::<TitleDetail>(
-                &conn.key,
-                title_detail::Variables {
-                    id: title_id.to_string(),
-                },
-            )
-            .await?;
-        let Some(d) = data.title else {
-            return Ok(None);
-        };
-        cache.insert(title_id.to_string(), d.into());
+        let idx = fetch_season_index(st, conn, title_id)
+            .await
+            .inspect_err(|e| {
+                tracing::warn!(title_id, error = %e, "title detail failed; queue season left unknown")
+            })
+            .ok()
+            .flatten();
+        cache.insert(title_id.to_string(), idx);
     }
-    Ok(cache.get(title_id).and_then(|d| {
-        d.seasons
-            .iter()
-            .flat_map(|s| &s.episodes)
-            .find(|e| e.id == episode_id)
-            .and_then(|e| parse_num(&e.season_number))
-    }))
+    cache.get(title_id).and_then(Option::as_ref)
+}
+
+#[derive(Default)]
+struct Scope {
+    episode_id: Option<String>,
+    episode_ids: Vec<String>,
+    collection_id: Option<String>,
+}
+
+fn scope_of(s: Option<&queue_page::QueuePageDownloadQueuePageItemsQueueScope>) -> Scope {
+    use queue_page::QueuePageDownloadQueuePageItemsQueueScope as Q;
+    match s {
+        Some(Q::EpisodeScopePayload(e)) => Scope {
+            episode_id: Some(e.episode_id.clone()),
+            ..Scope::default()
+        },
+        Some(Q::EpisodeSetScopePayload(e)) => Scope {
+            episode_ids: e.episode_ids.clone(),
+            ..Scope::default()
+        },
+        Some(Q::CollectionScopePayload(c)) => Scope {
+            collection_id: Some(c.collection_id.clone()),
+            ..Scope::default()
+        },
+        _ => Scope::default(),
+    }
 }
 
 fn queue_key(client_type: &str, client_id: Option<&str>, item_id: &str) -> String {
@@ -178,16 +260,34 @@ async fn queue_entries(st: &AppState, conn: &Conn) -> Result<Vec<Entry>, AppErro
             .store
             .arr_id(IdKind::Queue, &conn.library_id, &key)
             .await?;
-        let (episode_id, season_number) = match (conn.flavor, i.episode_id.as_deref()) {
-            (Flavor::Sonarr, Some(ep)) => {
-                let eid = st
-                    .store
-                    .arr_id(IdKind::Episode, &conn.library_id, ep)
-                    .await?;
-                let sn = season_of(st, conn, &mut details, &t.id, ep).await?;
-                (Some(eid), sn)
-            }
-            _ => (None, None),
+        let (episode_id, season_number) = if conn.flavor == Flavor::Sonarr {
+            let scope = scope_of(i.queue_scope.as_ref());
+            let ep = i.episode_id.clone().or(scope.episode_id);
+            let eid = match ep.as_deref() {
+                Some(ep) => Some(
+                    st.store
+                        .arr_id(IdKind::Episode, &conn.library_id, ep)
+                        .await?,
+                ),
+                None => None,
+            };
+            let sn =
+                if ep.is_some() || !scope.episode_ids.is_empty() || scope.collection_id.is_some() {
+                    season_index(st, conn, &mut details, &t.id)
+                        .await
+                        .and_then(|idx| {
+                            idx.season(
+                                ep.as_deref(),
+                                &scope.episode_ids,
+                                scope.collection_id.as_deref(),
+                            )
+                        })
+                } else {
+                    None
+                };
+            (eid, sn)
+        } else {
+            (None, None)
         };
         let (status, tracked) = state_for(&enum_str(&i.display_state));
         let size = i.size_bytes.unwrap_or(0);
@@ -300,17 +400,18 @@ pub async fn delete_queue(
     Ok(Json(serde_json::json!({})))
 }
 
+/// scryer reports `TitleHistoryEventType::as_str()`: lowercase snake_case.
 fn event_type(scryer_event: &str, flavor: Flavor) -> &'static str {
     let movie = flavor == Flavor::Radarr;
-    match scryer_event {
-        "GRABBED" => "grabbed",
-        "IMPORTED" => "downloadFolderImported",
-        "DOWNLOAD_FAILED" | "IMPORT_FAILED" => "downloadFailed",
-        "FILE_DELETED" if movie => "movieFileDeleted",
-        "FILE_DELETED" => "episodeFileDeleted",
-        "FILE_RENAMED" if movie => "movieFileRenamed",
-        "FILE_RENAMED" => "episodeFileRenamed",
-        "DOWNLOAD_IGNORED" => "downloadIgnored",
+    match scryer_event.trim().to_ascii_lowercase().as_str() {
+        "grabbed" => "grabbed",
+        "imported" => "downloadFolderImported",
+        "download_failed" | "import_failed" => "downloadFailed",
+        "file_deleted" if movie => "movieFileDeleted",
+        "file_deleted" => "episodeFileDeleted",
+        "file_renamed" if movie => "movieFileRenamed",
+        "file_renamed" => "episodeFileRenamed",
+        "download_ignored" => "downloadIgnored",
         _ => "unknown",
     }
 }
@@ -350,15 +451,21 @@ async fn history_for(
             },
         )
         .await?;
-    let mut details = HashMap::new();
+    let seasons = match season {
+        Some(_) => fetch_season_index(st, conn, &title.id)
+            .await?
+            .unwrap_or_default(),
+        None => SeasonIndex::default(),
+    };
     let mut out = Vec::new();
     for h in data.title_history.items {
-        if let (Some(want), Some(ep)) = (season, h.episode_id.as_deref())
-            && season_of(st, conn, &mut details, &title.id, ep).await? != Some(want)
+        if let Some(want) = season
+            && seasons.season(
+                h.episode_id.as_deref(),
+                &h.episode_ids,
+                h.collection_id.as_deref(),
+            ) != Some(want)
         {
-            continue;
-        }
-        if season.is_some() && h.episode_id.is_none() {
             continue;
         }
         let key = format!(
@@ -382,7 +489,7 @@ async fn history_for(
         };
         out.push(HistoryRecord {
             id,
-            event_type: event_type(&enum_str(&h.event_type), conn.flavor).into(),
+            event_type: event_type(&h.event_type, conn.flavor).into(),
             date: h.occurred_at.clone(),
             download_id: h.download_id.clone(),
             source_title: h.source_title.clone().unwrap_or_default(),
@@ -548,6 +655,29 @@ pub async fn post_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_event_types_match_scryer_codes() {
+        let cases = [
+            ("grabbed", "grabbed", "grabbed"),
+            (
+                "imported",
+                "downloadFolderImported",
+                "downloadFolderImported",
+            ),
+            ("download_failed", "downloadFailed", "downloadFailed"),
+            ("import_failed", "downloadFailed", "downloadFailed"),
+            ("file_deleted", "movieFileDeleted", "episodeFileDeleted"),
+            ("file_renamed", "movieFileRenamed", "episodeFileRenamed"),
+            ("download_ignored", "downloadIgnored", "downloadIgnored"),
+            ("GRABBED", "grabbed", "grabbed"),
+            ("seeding_started", "unknown", "unknown"),
+        ];
+        for (scryer, radarr, sonarr) in cases {
+            assert_eq!(event_type(scryer, Flavor::Radarr), radarr, "{scryer}");
+            assert_eq!(event_type(scryer, Flavor::Sonarr), sonarr, "{scryer}");
+        }
+    }
 
     #[test]
     fn timeleft_does_not_wrap_hours() {

@@ -1,1 +1,1 @@
-query TitleHistory($filter: TitleHistoryFilterInput!) { titleHistory(filter: $filter) { items { id titleId episodeId eventType sourceTitle quality downloadId clientId occurredAt } hasMore } }
+query TitleHistory($filter: TitleHistoryFilterInput!) { titleHistory(filter: $filter) { items { id titleId episodeId episodeIds collectionId eventType sourceTitle quality downloadId clientId occurredAt } hasMore } }
