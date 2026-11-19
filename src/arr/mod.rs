@@ -34,7 +34,16 @@ pub struct LibraryInfo {
     pub request_quality_profile_ids: Vec<String>,
 }
 
-type CacheMap = HashMap<(u64, String), (Instant, Arc<LibraryInfo>)>;
+/// The library permission a route needs. scryer's `libraries` lists a library
+/// only to callers holding at least the requested permission, and fills its
+/// root folders only for callers who manage it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Access {
+    View,
+    ManageTitles,
+}
+
+type CacheMap = HashMap<(u64, Access, String), (Instant, Arc<LibraryInfo>)>;
 
 #[derive(Clone, Default)]
 pub struct LibraryCache(Arc<Mutex<CacheMap>>);
@@ -46,17 +55,20 @@ fn key_hash(key: &ApiKey) -> u64 {
 }
 
 impl LibraryCache {
-    fn get(&self, key: &ApiKey, library_id: &str) -> Option<Arc<LibraryInfo>> {
+    fn get(&self, key: &ApiKey, access: Access, library_id: &str) -> Option<Arc<LibraryInfo>> {
         let map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        map.get(&(key_hash(key), library_id.to_string()))
+        map.get(&(key_hash(key), access, library_id.to_string()))
             .filter(|(at, _)| at.elapsed() < CACHE_TTL)
             .map(|(_, info)| info.clone())
     }
 
-    fn put(&self, key: &ApiKey, info: Arc<LibraryInfo>) {
+    fn put(&self, key: &ApiKey, access: Access, info: Arc<LibraryInfo>) {
         let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
         map.retain(|_, (at, _)| at.elapsed() < CACHE_TTL);
-        map.insert((key_hash(key), info.id.clone()), (Instant::now(), info));
+        map.insert(
+            (key_hash(key), access, info.id.clone()),
+            (Instant::now(), info),
+        );
     }
 }
 
@@ -78,6 +90,47 @@ fn facet_from_scryer(f: &libraries::MediaFacetValue) -> Facet {
         Some("ANIME") => Facet::Anime,
         _ => Facet::Movie,
     }
+}
+
+async fn resolve_library(
+    state: &AppState,
+    key: &ApiKey,
+    access: Access,
+    library_id: &str,
+) -> Result<Option<Arc<LibraryInfo>>, AppError> {
+    if let Some(l) = state.libraries.get(key, access, library_id) {
+        return Ok(Some(l));
+    }
+    let permission = match access {
+        Access::View => None,
+        Access::ManageTitles => Some(libraries::LibraryPermissionValue::MANAGE_TITLES),
+    };
+    let data = state
+        .scryer
+        .run::<Libraries>(
+            key,
+            libraries::Variables {
+                facet: None,
+                permission,
+            },
+        )
+        .await?;
+    let mut found = None;
+    for l in data.libraries {
+        let info = Arc::new(LibraryInfo {
+            id: l.id,
+            name: l.name,
+            facet: facet_from_scryer(&l.facet),
+            roots: l.roots.into_iter().map(|r| r.path).collect(),
+            quality_profile_id: Some(l.quality_profile_id).filter(|s| !s.is_empty()),
+            request_quality_profile_ids: l.request_quality_profile_ids,
+        });
+        state.libraries.put(key, access, info.clone());
+        if info.id == library_id {
+            found = Some(info);
+        }
+    }
+    Ok(found)
 }
 
 impl FromRequestParts<AppState> for Conn {
@@ -105,31 +158,9 @@ impl FromRequestParts<AppState> for Conn {
             .map(|v| ApiKey(v.to_string()))
             .ok_or(AppError::Unauthorized)?;
 
-        let library = match state.libraries.get(&key, &library_id) {
-            Some(l) => l,
-            None => {
-                let data = state
-                    .scryer
-                    .run::<Libraries>(&key, libraries::Variables { facet: None })
-                    .await?;
-                let mut found = None;
-                for l in data.libraries {
-                    let info = Arc::new(LibraryInfo {
-                        id: l.id,
-                        name: l.name,
-                        facet: facet_from_scryer(&l.facet),
-                        roots: l.roots.into_iter().map(|r| r.path).collect(),
-                        quality_profile_id: Some(l.quality_profile_id).filter(|s| !s.is_empty()),
-                        request_quality_profile_ids: l.request_quality_profile_ids,
-                    });
-                    state.libraries.put(&key, info.clone());
-                    if info.id == library_id {
-                        found = Some(info);
-                    }
-                }
-                found.ok_or_else(|| AppError::NotFound("library not found".into()))?
-            }
-        };
+        let library = resolve_library(state, &key, Access::View, &library_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("library not found".into()))?;
 
         if !flavor.accepts(library.facet) {
             let name = match flavor {
@@ -150,6 +181,30 @@ impl FromRequestParts<AppState> for Conn {
     }
 }
 
+/// A connection whose key may manage titles in the library. Bridge-local
+/// state (webhook registrations, the roots that route events) is written on
+/// behalf of the library, so it needs more than View.
+pub struct ManagedConn(pub Conn);
+
+impl FromRequestParts<AppState> for ManagedConn {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let conn = Conn::from_request_parts(parts, state).await?;
+        let library = resolve_library(state, &conn.key, Access::ManageTitles, &conn.library_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::Forbidden(
+                    "the Manage titles permission is required on this library".into(),
+                )
+            })?;
+        Ok(ManagedConn(Conn { library, ..conn }))
+    }
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/system/status", get(system::status))
@@ -163,7 +218,7 @@ pub fn router() -> Router<AppState> {
             "/movie/{id}",
             get(titles::get_movie)
                 .put(titles::update_movie)
-                .delete(titles::delete_title),
+                .delete(titles::delete_movie),
         )
         .route("/series", get(titles::list_series).post(titles::add_series))
         .route("/series/lookup", get(titles::lookup_series))
@@ -171,7 +226,7 @@ pub fn router() -> Router<AppState> {
             "/series/{id}",
             get(titles::get_series)
                 .put(titles::update_series)
-                .delete(titles::delete_title),
+                .delete(titles::delete_series),
         )
         .route("/episode", get(episodes::list_episodes))
         .route("/episode/monitor", put(episodes::monitor_episodes))

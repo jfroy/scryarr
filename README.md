@@ -5,7 +5,9 @@ media server as a Radarr or Sonarr v3 instance, and relays scryer's Generic Webh
 tofa. tofa requests, searches and tracks titles through the bridge; scryer stays the system of record.
 
 The bridge holds no scryer credential and stores none of tofa's API keys. Its only state is a small
-SQLite file (`state.db`) of webhook registrations, which is safe to lose.
+SQLite file (`state.db`): tofa's webhook registrations, each library's root folders (used to route
+scryer events), and the small integer IDs it hands tofa for quality profiles, episodes, episode files,
+queue and history records, tags and root folders. See [Losing state.db](#losing-statedb).
 
 ## Connecting tofa
 
@@ -17,7 +19,9 @@ Add one Radarr or Sonarr connection per scryer library (Admin, Integrations):
 | API key | A scryer API key for a user with Manage titles and Resolve imports on that library |
 
 The flavor must match the library's facet (`radarr` for `MOVIE`, `sonarr` for `SERIES` or `ANIME`);
-a mismatch fails tofa's Test button. The API key is forwarded to scryer unchanged and never stored,
+a mismatch fails tofa's Test button. Webhook registrations and root folders change the bridge's own
+state for the library, so those routes need Manage titles; a key that can only view the library gets
+403 there. The API key is forwarded to scryer unchanged and never stored,
 so scryer's own per-library permissions decide what each connection can do. Radarr movie IDs are
 TMDB IDs and Sonarr series IDs are TVDB IDs; titles lacking that ID are not visible to tofa.
 
@@ -59,6 +63,22 @@ event type, known or not, is acknowledged with `200 {"delivered":0}` and dropped
 the queue and library, so a dropped event delays an update rather than losing it.
 
 The bridge answers 503 with `Retry-After` when tofa is unreachable, so scryer's own retry applies.
+
+## Losing state.db
+
+Movie and series IDs are the TMDB and TVDB IDs themselves, so they survive. Everything else in
+`state.db` does not:
+
+- **Quality profiles.** The profile IDs tofa saved in each connection (default, 4K, anime) may now
+  name no profile or a different one. Open each connection in tofa, re-pick its profiles and save.
+- **Event routing.** The bridge routes scryer events by the library's root folders, which it records
+  when tofa reads `rootfolder`. Until tofa does that again, on the connection's Test or save, events
+  for that library are dropped.
+- **Webhook registrations.** tofa's webhooks are gone, so nothing reaches tofa until each connection
+  is saved again, which registers it anew.
+
+Saving each tofa connection once (after Test) covers all three. Episode, queue and history IDs are
+short-lived for tofa, which re-reads them before acting.
 
 ## Container image
 

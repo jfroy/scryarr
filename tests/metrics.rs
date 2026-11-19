@@ -99,3 +99,17 @@ async fn scryer_errors_are_counted() {
         "{body}"
     );
 }
+
+#[tokio::test]
+async fn forbidden_scryer_errors_are_counted() {
+    let server = MockServer::start().await;
+    common::scryer_mock::mock_op_status(&server, "Libraries", 403).await;
+    let st = common::test_state_with(&server.uri()).await;
+    let (code, _, _) = get_text(&st, "/radarr/L1/api/v3/system/status", Some("k")).await;
+    assert_eq!(code, StatusCode::FORBIDDEN);
+    let body = get_text(&st, "/metrics", None).await.1;
+    assert!(
+        body.contains(r#"scryarr_scryer_errors_total{kind="forbidden"} 1"#),
+        "{body}"
+    );
+}

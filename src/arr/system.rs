@@ -1,15 +1,17 @@
+use std::collections::HashMap;
+
 use axum::Json;
 use axum::extract::State;
 use serde::Deserialize;
 
-use super::Conn;
 use super::model::{QualityProfile, RootFolder, SystemStatus, Tag};
+use super::{Conn, ManagedConn};
 use crate::AppState;
 use crate::domain::Flavor;
 use crate::error::AppError;
 use crate::scryer::ops::{
-    QualityProfiles, ScryerVersion, TagDefinitions, quality_profiles, scryer_version,
-    tag_definitions,
+    QualityProfiles, ScryerVersion, StorageRoots, TagDefinitions, quality_profiles, scryer_version,
+    storage_roots, tag_definitions,
 };
 use crate::store::IdKind;
 
@@ -61,14 +63,51 @@ pub async fn quality_profiles(
     Ok(Json(out))
 }
 
+fn root_key(path: &str) -> &str {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() { path } else { trimmed }
+}
+
+/// Free bytes per root path of this library, from scryer's `storageRoots`.
+/// Empty when scryer cannot say, so each root reports `freeSpace: null`.
+async fn free_space(st: &AppState, conn: &Conn) -> HashMap<String, i64> {
+    let roots = match st
+        .scryer
+        .run::<StorageRoots>(&conn.key, storage_roots::Variables)
+        .await
+    {
+        Ok(d) => d.storage_roots,
+        Err(e) => {
+            tracing::debug!(error = %e, "storage roots unavailable; free space unknown");
+            return HashMap::new();
+        }
+    };
+    roots
+        .into_iter()
+        .filter(|r| r.library_id == conn.library_id)
+        .filter_map(|r| {
+            let free = r.total_bytes?.checked_sub(r.used_bytes?)?.max(0);
+            Some((root_key(&r.path).to_owned(), free))
+        })
+        .collect()
+}
+
 pub async fn root_folders(
     State(st): State<AppState>,
-    conn: Conn,
+    ManagedConn(conn): ManagedConn,
 ) -> Result<Json<Vec<RootFolder>>, AppError> {
     let roots = &conn.library.roots;
-    st.store
-        .set_library_roots(&conn.library_id, conn.facet, roots)
-        .await?;
+    if roots.is_empty() {
+        tracing::warn!(
+            library_id = %conn.library_id,
+            "scryer listed no root folders for this library; keeping the stored ones for event routing"
+        );
+    } else {
+        st.store
+            .set_library_roots(&conn.library_id, conn.facet, roots)
+            .await?;
+    }
+    let free = free_space(&st, &conn).await;
     let mut out = Vec::new();
     for path in roots {
         let id = st
@@ -78,7 +117,7 @@ pub async fn root_folders(
         out.push(RootFolder {
             id,
             path: path.clone(),
-            free_space: 0,
+            free_space: free.get(root_key(path)).copied(),
             accessible: true,
         });
     }

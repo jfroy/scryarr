@@ -21,7 +21,7 @@ pub struct QualityProfile {
 pub struct RootFolder {
     pub id: i32,
     pub path: String,
-    pub free_space: i64,
+    pub free_space: Option<i64>,
     pub accessible: bool,
 }
 

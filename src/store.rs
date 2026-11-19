@@ -229,6 +229,20 @@ impl Store {
         row.as_ref().map(notification_from_row).transpose()
     }
 
+    pub async fn notification(&self, library_id: &str, id: i32) -> Result<Option<Notification>> {
+        sqlx::query(
+            "SELECT id, library_id, flavor, body FROM notifications \
+             WHERE library_id = ? AND id = ?",
+        )
+        .bind(library_id)
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?
+        .as_ref()
+        .map(notification_from_row)
+        .transpose()
+    }
+
     pub async fn notifications(&self, library_id: &str) -> Result<Vec<Notification>> {
         sqlx::query(
             "SELECT id, library_id, flavor, body FROM notifications \

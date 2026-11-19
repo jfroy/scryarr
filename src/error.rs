@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
@@ -7,6 +7,11 @@ use serde_json::json;
 pub enum AppError {
     #[error("unauthorized")]
     Unauthorized,
+    /// The key is valid but lacks a permission scryer requires.
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+    #[error("rate limited by scryer")]
+    RateLimited { retry_after: Option<u64> },
     #[error("not found: {0}")]
     NotFound(String),
     #[error("bad request: {0}")]
@@ -41,6 +46,21 @@ impl IntoResponse for AppError {
                 Json(json!({ "error": "Unauthorized" })),
             )
                 .into_response(),
+            AppError::Forbidden(m) => {
+                (StatusCode::FORBIDDEN, Json(json!({ "message": m }))).into_response()
+            }
+            AppError::RateLimited { retry_after } => {
+                let mut r = (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({ "message": "scryer is rate limiting requests" })),
+                )
+                    .into_response();
+                if let Some(secs) = retry_after {
+                    r.headers_mut()
+                        .insert(header::RETRY_AFTER, HeaderValue::from(secs));
+                }
+                r
+            }
             AppError::NotFound(m) => {
                 (StatusCode::NOT_FOUND, Json(json!({ "message": m }))).into_response()
             }
@@ -108,5 +128,23 @@ mod tests {
         .await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
         assert_eq!(b[0]["errorMessage"], "r: m");
+        let (s, b) = parts(AppError::Forbidden("no access".into())).await;
+        assert_eq!(
+            (s, b),
+            (StatusCode::FORBIDDEN, json!({"message":"no access"}))
+        );
+    }
+
+    #[tokio::test]
+    async fn rate_limited_is_503_with_retry_after() {
+        let r = AppError::RateLimited {
+            retry_after: Some(12),
+        }
+        .into_response();
+        assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(r.headers()["retry-after"], "12");
+        let r = AppError::RateLimited { retry_after: None }.into_response();
+        assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(r.headers().get("retry-after").is_none());
     }
 }

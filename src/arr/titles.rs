@@ -910,12 +910,12 @@ pub async fn update_series(
         .ok_or_else(|| AppError::NotFound("title not found".into()))
 }
 
-pub async fn delete_title(
-    State(st): State<AppState>,
-    conn: Conn,
-    Path((_, id)): Path<(String, i32)>,
+async fn delete_title(
+    st: &AppState,
+    conn: &Conn,
+    id: i32,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let t = find_title(&st, &conn, id).await?;
+    let t = find_title(st, conn, id).await?;
     st.scryer
         .run::<DeleteTitle>(
             &conn.key,
@@ -930,4 +930,22 @@ pub async fn delete_title(
         )
         .await?;
     Ok(Json(serde_json::json!({})))
+}
+
+pub async fn delete_movie(
+    State(st): State<AppState>,
+    conn: Conn,
+    Path((_, id)): Path<(String, i32)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require(&conn, Flavor::Radarr)?;
+    delete_title(&st, &conn, id).await
+}
+
+pub async fn delete_series(
+    State(st): State<AppState>,
+    conn: Conn,
+    Path((_, id)): Path<(String, i32)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require(&conn, Flavor::Sonarr)?;
+    delete_title(&st, &conn, id).await
 }

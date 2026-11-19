@@ -92,8 +92,19 @@ impl ScryerClient {
             })?;
 
         let status = resp.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        if status == reqwest::StatusCode::UNAUTHORIZED {
             return Err(AppError::Unauthorized);
+        }
+        if status == reqwest::StatusCode::FORBIDDEN {
+            return Err(AppError::Forbidden("scryer refused the request".into()));
+        }
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let retry_after = resp
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.trim().parse().ok());
+            return Err(AppError::RateLimited { retry_after });
         }
         if status.is_server_error() {
             return Err(AppError::Upstream(format!("scryer returned HTTP {status}")));
@@ -115,12 +126,28 @@ impl ScryerClient {
                     .map(str::to_string)
             };
             let code = ext("code");
+            let reason = ext("reason");
+            let rate_limited = [&code, &reason]
+                .into_iter()
+                .flatten()
+                .any(|s| s.contains("RATE_LIMITED"));
+            if rate_limited {
+                let retry_after = first
+                    .extensions
+                    .as_ref()
+                    .and_then(|m| m.get("retryAfterSeconds"))
+                    .and_then(|v| v.as_u64().or_else(|| v.as_str()?.trim().parse().ok()));
+                return Err(AppError::RateLimited { retry_after });
+            }
             return Err(match code.as_deref() {
+                Some("UNAUTHORIZED") if reason.is_some() => {
+                    AppError::Forbidden(first.message.clone())
+                }
                 Some("UNAUTHORIZED") => AppError::Unauthorized,
                 Some("NOT_FOUND") => AppError::NotFound(first.message.clone()),
                 _ => AppError::Scryer {
                     code,
-                    reason: ext("reason"),
+                    reason,
                     message: first.message.clone(),
                 },
             });

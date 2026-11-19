@@ -84,6 +84,8 @@ impl Metrics {
     pub fn record_scryer_error(&self, e: &AppError) {
         let kind = match e {
             AppError::Unauthorized => "unauthorized",
+            AppError::Forbidden(_) => "forbidden",
+            AppError::RateLimited { .. } => "rate_limited",
             AppError::NotFound(_) => "not_found",
             AppError::Scryer { .. } => "scryer",
             AppError::Upstream(_) => "upstream",

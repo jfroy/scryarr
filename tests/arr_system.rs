@@ -106,7 +106,7 @@ async fn rootfolder_records_library_roots() {
     assert_eq!(code, StatusCode::OK);
     assert_eq!(body[0]["path"], "/media2/library/movies");
     assert_eq!(body[0]["accessible"], true);
-    assert_eq!(body[0]["freeSpace"], 0);
+    assert_eq!(body[0]["freeSpace"], Value::Null);
     assert_eq!(
         st.store
             .library_for_path(Facet::Movie, "/media2/library/movies/X (2020)/x.mkv")
@@ -170,4 +170,42 @@ async fn languageprofile_is_empty() {
     let (code, body) = get(&st, "/sonarr/L1/api/v3/languageprofile", Some("k1")).await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(body, json!([]));
+}
+
+#[tokio::test]
+async fn rootfolder_reports_free_space_from_storage_roots() {
+    let (server, st) = setup("MOVIE", &["/media2/library/movies", "/media3/movies"]).await;
+    mock_op(
+        &server,
+        "StorageRoots",
+        json!({"data": {"storageRoots": [
+            {"path": "/media2/library/movies", "libraryId": "L1", "usedBytes": 600, "totalBytes": 1000},
+            {"path": "/media3/movies", "libraryId": "L1", "usedBytes": null, "totalBytes": 1000},
+            {"path": "/media2/library/movies", "libraryId": "L2", "usedBytes": 1, "totalBytes": 1000}
+        ]}}),
+    )
+    .await;
+    let (code, body) = get(&st, "/radarr/L1/api/v3/rootfolder", Some("k1")).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    assert_eq!(body[0]["freeSpace"], 400);
+    assert_eq!(body[1]["freeSpace"], Value::Null);
+}
+
+#[tokio::test]
+async fn rootfolder_keeps_stored_roots_when_scryer_lists_none() {
+    let (_s, st) = setup("MOVIE", &[]).await;
+    st.store
+        .set_library_roots("L1", Facet::Movie, &["/media2/library/movies".to_string()])
+        .await
+        .unwrap();
+    let (code, body) = get(&st, "/radarr/L1/api/v3/rootfolder", Some("k1")).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(body, json!([]));
+    assert_eq!(
+        st.store
+            .library_for_path(Facet::Movie, "/media2/library/movies/X (2020)/x.mkv")
+            .await
+            .unwrap(),
+        Some("L1".to_string())
+    );
 }

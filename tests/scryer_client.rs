@@ -175,3 +175,73 @@ async fn title_detail_converts_to_views() {
     assert_eq!(v.media_files[0].episode_id.as_deref(), Some("e1"));
     assert_eq!(v.media_files[0].size_bytes, 123);
 }
+
+#[tokio::test]
+async fn http_403_maps_to_forbidden() {
+    let s = MockServer::start().await;
+    op_mock()
+        .respond_with(ResponseTemplate::new(403))
+        .mount(&s)
+        .await;
+    assert!(matches!(
+        run(&client(&s.uri()), "k").await,
+        Err(AppError::Forbidden(_))
+    ));
+}
+
+#[tokio::test]
+async fn graphql_unauthorized_with_reason_maps_to_forbidden() {
+    let s = MockServer::start().await;
+    op_mock()
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data":null,"errors":[{
+            "message":"unauthorized: You do not have access to this library",
+            "extensions":{"code":"UNAUTHORIZED","reason":"AUTHORIZATION_LIBRARY_ACCESS_DENIED"}}]})))
+        .mount(&s)
+        .await;
+    match run(&client(&s.uri()), "k").await {
+        Err(AppError::Forbidden(m)) => {
+            assert_eq!(m, "unauthorized: You do not have access to this library")
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn http_429_maps_to_rate_limited_with_retry_after() {
+    let s = MockServer::start().await;
+    op_mock()
+        .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "7"))
+        .mount(&s)
+        .await;
+    match run(&client(&s.uri()), "k").await {
+        Err(AppError::RateLimited { retry_after }) => assert_eq!(retry_after, Some(7)),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn graphql_rate_limited_maps_to_rate_limited() {
+    let s = MockServer::start().await;
+    op_mock()
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data":null,"errors":[{
+            "message":"Too many requests","extensions":{"code":"RATE_LIMITED","retryAfterSeconds":12}}]})))
+        .mount(&s)
+        .await;
+    match run(&client(&s.uri()), "k").await {
+        Err(AppError::RateLimited { retry_after }) => assert_eq!(retry_after, Some(12)),
+        other => panic!("{other:?}"),
+    }
+    let s = MockServer::start().await;
+    op_mock()
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"data":null,"errors":[{
+            "message":"slow down","extensions":{"code":"TEMPORARY_UNAVAILABLE",
+            "reason":"LIST_ACCOUNT_AUTH_RATE_LIMITED"}}]})),
+        )
+        .mount(&s)
+        .await;
+    match run(&client(&s.uri()), "k").await {
+        Err(AppError::RateLimited { retry_after }) => assert_eq!(retry_after, None),
+        other => panic!("{other:?}"),
+    }
+}

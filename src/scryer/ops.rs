@@ -208,3 +208,11 @@ pub struct DeleteEpisodeFiles;
     response_derives = "Debug, Clone"
 )]
 pub struct SetCollectionMonitored;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "graphql/schema.graphql",
+    query_path = "graphql/storage_roots.graphql",
+    response_derives = "Debug, Clone"
+)]
+pub struct StorageRoots;

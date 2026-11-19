@@ -1,0 +1,1 @@
+query StorageRoots { storageRoots { path libraryId usedBytes totalBytes } }

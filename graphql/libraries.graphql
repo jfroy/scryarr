@@ -1,1 +1,1 @@
-query Libraries($facet: MediaFacetValue) { libraries(facet: $facet, permission: null) { id facet name roots { path isDefault } qualityProfileId requestQualityProfileIds } }
+query Libraries($facet: MediaFacetValue, $permission: LibraryPermissionValue) { libraries(facet: $facet, permission: $permission) { id facet name roots { path isDefault } qualityProfileId requestQualityProfileIds } }

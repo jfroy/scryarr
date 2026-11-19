@@ -923,3 +923,48 @@ async fn post_series_succeeds_when_search_fails() {
     assert_eq!(code, StatusCode::CREATED, "{resp}");
     server.verify().await;
 }
+
+#[tokio::test]
+async fn delete_on_the_other_flavors_route_is_404() {
+    let (server, st) = setup("MOVIE").await;
+    mock_op(
+        &server,
+        "TitlesByExternalIds",
+        by_ext(vec![title("m1", "MOVIE", &[("tmdb", "603")], None, true)]),
+    )
+    .await;
+    expect_op(
+        &server,
+        "DeleteTitle",
+        json!({"data": {"deleteTitle": {"id": "m1"}}}),
+        0,
+    )
+    .await;
+    let (code, _) = send(&st, Method::DELETE, "/radarr/L1/api/v3/series/603", None).await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    server.verify().await;
+
+    let (server, st) = setup("SERIES").await;
+    mock_op(
+        &server,
+        "TitlesByExternalIds",
+        by_ext(vec![title(
+            "s1",
+            "SERIES",
+            &[("tvdb", "81189")],
+            None,
+            true,
+        )]),
+    )
+    .await;
+    expect_op(
+        &server,
+        "DeleteTitle",
+        json!({"data": {"deleteTitle": {"id": "s1"}}}),
+        0,
+    )
+    .await;
+    let (code, _) = send(&st, Method::DELETE, "/sonarr/L1/api/v3/movie/81189", None).await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    server.verify().await;
+}
