@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "event_type": "import_complete",
+  "event_id": "evt-import-1",
+  "occurred_at": "2026-11-18T10:05:00+00:00",
+  "severity": "info",
+  "is_test": false,
+  "summary_title": "Import complete: Show",
+  "summary_message": "Imported 1 file for 'Show'.",
+  "app": {"name": "Scryer", "version": "0.22.4"},
+  "title": {
+    "id": "t-show",
+    "name": "Show",
+    "facet": "series",
+    "year": 2008,
+    "slug": "show",
+    "path": "/media2/library/tv/Show",
+    "external_ids": {"tvdb_id": "81189", "tmdb_id": "1396"}
+  },
+  "episode": {
+    "episode_ids": ["ep-203"],
+    "media_file_id": "mf-203",
+    "media_file_path": "/media2/library/tv/Show/Season 02/Show - S02E03.mkv",
+    "display": "S02E03"
+  },
+  "episodes": [
+    {
+      "id": "ep-203",
+      "episode_ids": ["ep-203"],
+      "media_file_id": "mf-203",
+      "media_file_path": "/media2/library/tv/Show/Season 02/Show - S02E03.mkv",
+      "display": "S02E03",
+      "collection_id": "col-s2",
+      "season_number": "2",
+      "episode_number": "3",
+      "title": "Bit by a Dead Bee",
+      "air_date": "2009-03-22",
+      "episode_type": "standard"
+    }
+  ],
+  "release": {"source_title": "Show.S02E03.1080p.WEB-DL.x264-GRP", "quality": "1080p"},
+  "download": {"client_name": "sabnzbd"},
+  "import": {
+    "import_id": "imp-1",
+    "source_system": "sabnzbd",
+    "source_ref": "SABnzbd_nzo_def456",
+    "source_title": "Show.S02E03.1080p.WEB-DL.x264-GRP",
+    "source_path": "/downloads/complete/Show.S02E03.1080p.WEB-DL.x264-GRP",
+    "imported_count": 1,
+    "status": "completed"
+  },
+  "file": {
+    "primary_path": "/media2/library/tv/Show/Season 02/Show - S02E03.mkv",
+    "media_updates": [
+      {"path": "/media2/library/tv/Show/Season 02/Show - S02E03.mkv", "update_type": "created"}
+    ]
+  },
+  "media_files": [
+    {
+      "id": "mf-203",
+      "path": "/media2/library/tv/Show/Season 02/Show - S02E03.mkv",
+      "previous_path": "/downloads/complete/Show.S02E03.1080p.WEB-DL.x264-GRP/show.s02e03.mkv",
+      "size_bytes": 1610612736,
+      "quality": "1080p"
+    }
+  ]
+}

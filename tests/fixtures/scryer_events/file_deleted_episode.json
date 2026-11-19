@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "event_type": "file_deleted",
+  "event_id": "evt-delete-1",
+  "occurred_at": "2026-11-18T13:00:00+00:00",
+  "severity": "info",
+  "is_test": false,
+  "summary_title": "File deleted: Show",
+  "summary_message": "Deleted media file from disk: /media2/library/tv/Show/Season 02/Show - S02E03.mkv",
+  "app": {"name": "Scryer", "version": "0.22.4"},
+  "title": {
+    "id": "t-show",
+    "name": "Show",
+    "facet": "series",
+    "year": 2008,
+    "path": "/media2/library/tv/Show",
+    "external_ids": {"tvdb_id": "81189"}
+  },
+  "episode": {"episode_ids": ["ep-203"], "display": "S02E03"},
+  "episodes": [
+    {
+      "id": "ep-203",
+      "episode_ids": ["ep-203"],
+      "display": "S02E03",
+      "season_number": "2",
+      "episode_number": "3"
+    }
+  ],
+  "file": {
+    "primary_path": "/media2/library/tv/Show/Season 02/Show - S02E03.mkv",
+    "media_updates": [
+      {"path": "/media2/library/tv/Show/Season 02/Show - S02E03.mkv", "update_type": "deleted"}
+    ]
+  },
+  "media_files": [
+    {"path": "/media2/library/tv/Show/Season 02/Show - S02E03.mkv"}
+  ]
+}

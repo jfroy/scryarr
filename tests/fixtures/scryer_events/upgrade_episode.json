@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "event_type": "upgrade",
+  "event_id": "evt-upgrade-2",
+  "occurred_at": "2026-11-18T11:30:00+00:00",
+  "severity": "info",
+  "is_test": false,
+  "summary_title": "Upgraded: Show",
+  "summary_message": "Upgraded file for 'Show'.",
+  "app": {"name": "Scryer", "version": "0.22.4"},
+  "title": {
+    "id": "t-show",
+    "name": "Show",
+    "facet": "series",
+    "year": 2008,
+    "path": "/media2/library/tv/Show",
+    "external_ids": {"tvdb_id": "81189"}
+  },
+  "episode": {
+    "episode_ids": ["ep-203"],
+    "media_file_id": "mf-203b",
+    "media_file_path": "/media2/library/tv/Show/Season 02/Show - S02E03 [2160p].mkv",
+    "display": "S02E03"
+  },
+  "episodes": [
+    {
+      "id": "ep-203",
+      "episode_ids": ["ep-203"],
+      "media_file_id": "mf-203b",
+      "media_file_path": "/media2/library/tv/Show/Season 02/Show - S02E03 [2160p].mkv",
+      "display": "S02E03",
+      "collection_id": "col-s2",
+      "season_number": "2",
+      "episode_number": "3",
+      "episode_type": "standard"
+    }
+  ],
+  "import": {"import_id": "imp-10", "source_ref": "SABnzbd_nzo_ghi789", "upgrade": true},
+  "file": {
+    "primary_path": "/media2/library/tv/Show/Season 02/Show - S02E03 [2160p].mkv",
+    "media_updates": [
+      {"path": "/media2/library/tv/Show/Season 02/Show - S02E03 [1080p].mkv", "update_type": "deleted"},
+      {"path": "/media2/library/tv/Show/Season 02/Show - S02E03 [2160p].mkv", "update_type": "created"}
+    ]
+  },
+  "media_files": [
+    {
+      "id": "mf-203a",
+      "path": "/media2/library/tv/Show/Season 02/Show - S02E03 [1080p].mkv",
+      "previous_path": "/downloads/complete/Show.S02E03.1080p.WEB-DL/show.s02e03.mkv",
+      "size_bytes": 1610612736
+    },
+    {
+      "id": "mf-203b",
+      "path": "/media2/library/tv/Show/Season 02/Show - S02E03 [2160p].mkv",
+      "previous_path": "/downloads/complete/Show.S02E03.2160p.WEB-DL/show.s02e03.mkv",
+      "size_bytes": 6442450944
+    }
+  ]
+}

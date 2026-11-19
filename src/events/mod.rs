@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use scryer_plugin_sdk::{NotificationEventType, PluginNotificationRequest};
-use serde_json::json;
+use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
 use crate::AppState;
@@ -42,8 +42,31 @@ async fn ingest(State(state): State<AppState>, Path(token): Path<String>, body: 
     if !bool::from(token.as_bytes().ct_eq(expected)) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let Ok(req) = serde_json::from_slice::<PluginNotificationRequest>(&body) else {
+    let Ok(raw) = serde_json::from_slice::<Value>(&body) else {
         return StatusCode::BAD_REQUEST.into_response();
+    };
+    let Some(event_type) = raw
+        .get("event_type")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let Ok(kind) =
+        serde_json::from_value::<NotificationEventType>(Value::from(event_type.as_str()))
+    else {
+        tracing::debug!(event_type, "unknown scryer event type dropped");
+        return dropped(&state);
+    };
+    if !translate::relayed(kind) {
+        return dropped(&state);
+    }
+    let req = match serde_json::from_value::<PluginNotificationRequest>(raw) {
+        Ok(req) => req,
+        Err(e) => {
+            tracing::warn!(event_type, error = %e, "malformed scryer event");
+            return StatusCode::BAD_REQUEST.into_response();
+        }
     };
 
     let targets: Vec<Notification> = if req.event_type == NotificationEventType::Test {

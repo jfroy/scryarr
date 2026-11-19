@@ -1,10 +1,65 @@
 {
   "schema_version": 1,
   "event_type": "rename",
-  "summary_title": "rename",
-  "summary_message": "rename event",
-  "app": {"name": "scryer", "version": "0.22.4"},
-  "title": {"name": "Show", "facet": "series", "path": "/media2/library/tv/Show", "external_ids": {"tvdb_id": "81189"}},
-  "episodes": [{"season_number": "2"}],
-  "media_files": [{"path": "/media2/library/tv/Show/Season 02/New.mkv", "previous_path": "/media2/library/tv/Show/Season 02/Old.mkv"}, {"path": "/media2/library/tv/Show/Season 02/Same.mkv"}]
+  "event_id": "evt-rename-1",
+  "occurred_at": "2026-11-18T12:00:00+00:00",
+  "severity": "info",
+  "is_test": false,
+  "summary_title": "Renamed: Show",
+  "summary_message": "Renamed 2 file(s) for 'Show'.",
+  "app": {"name": "Scryer", "version": "0.22.4"},
+  "title": {
+    "id": "t-show",
+    "name": "Show",
+    "facet": "series",
+    "year": 2008,
+    "path": "/media2/library/tv/Show",
+    "external_ids": {"tvdb_id": "81189"}
+  },
+  "episode": {"episode_ids": ["ep-201", "ep-202"], "display": "S02E01"},
+  "episodes": [
+    {
+      "id": "ep-201",
+      "episode_ids": ["ep-201"],
+      "media_file_id": "mf-201",
+      "media_file_path": "/media2/library/tv/Show/Season 02/Show - S02E01 - Seven Thirty-Seven.mkv",
+      "display": "S02E01",
+      "season_number": "2",
+      "episode_number": "1"
+    },
+    {
+      "id": "ep-202",
+      "episode_ids": ["ep-202"],
+      "media_file_id": "mf-202",
+      "media_file_path": "/media2/library/tv/Show/Season 02/Show - S02E02 - Grilled.mkv",
+      "display": "S02E02",
+      "season_number": "2",
+      "episode_number": "2"
+    }
+  ],
+  "file": {
+    "primary_path": "/media2/library/tv/Show/Season 02/Show - S02E01 - Seven Thirty-Seven.mkv",
+    "media_updates": [
+      {"path": "/media2/library/tv/Show/Season 02/Show.S02E01.mkv", "update_type": "deleted"},
+      {"path": "/media2/library/tv/Show/Season 02/Show - S02E01 - Seven Thirty-Seven.mkv", "update_type": "created"},
+      {"path": "/media2/library/tv/Show/Season 02/Show.S02E02.mkv", "update_type": "deleted"},
+      {"path": "/media2/library/tv/Show/Season 02/Show - S02E02 - Grilled.mkv", "update_type": "created"}
+    ]
+  },
+  "media_files": [
+    {"path": "/media2/library/tv/Show/Season 02/Show.S02E01.mkv"},
+    {
+      "id": "mf-201",
+      "path": "/media2/library/tv/Show/Season 02/Show - S02E01 - Seven Thirty-Seven.mkv",
+      "previous_path": "/downloads/complete/Show.S02E01.1080p/show.s02e01.mkv",
+      "size_bytes": 1610612736
+    },
+    {"path": "/media2/library/tv/Show/Season 02/Show.S02E02.mkv"},
+    {
+      "id": "mf-202",
+      "path": "/media2/library/tv/Show/Season 02/Show - S02E02 - Grilled.mkv",
+      "previous_path": "/downloads/complete/Show.S02E02.1080p/show.s02e02.mkv",
+      "size_bytes": 1610612736
+    }
+  ]
 }

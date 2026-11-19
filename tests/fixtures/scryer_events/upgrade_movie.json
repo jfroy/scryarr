@@ -1,9 +1,43 @@
 {
   "schema_version": 1,
   "event_type": "upgrade",
-  "summary_title": "upgrade",
-  "summary_message": "upgrade event",
-  "app": {"name": "scryer", "version": "0.22.4"},
-  "title": {"name": "Heat", "facet": "movie", "path": "/media2/library/movies/Heat (1995)", "external_ids": {"tmdb_id": "949"}},
-  "media_files": [{"path": "/media2/library/movies/Heat (1995)/Heat.2160p.mkv", "previous_path": "/media2/library/movies/Heat (1995)/Heat.1080p.mkv"}]
+  "event_id": "evt-upgrade-1",
+  "occurred_at": "2026-11-18T11:00:00+00:00",
+  "severity": "info",
+  "is_test": false,
+  "summary_title": "Upgraded: Heat",
+  "summary_message": "Upgraded file for 'Heat'.",
+  "app": {"name": "Scryer", "version": "0.22.4"},
+  "title": {
+    "id": "t-heat",
+    "name": "Heat",
+    "facet": "movie",
+    "year": 1995,
+    "path": "/media2/library/movies/Heat (1995)",
+    "external_ids": {"tmdb_id": "949", "imdb_id": "tt0113277"}
+  },
+  "import": {"import_id": "imp-9", "source_ref": "SABnzbd_nzo_abc123", "upgrade": true},
+  "file": {
+    "primary_path": "/media2/library/movies/Heat (1995)/Heat (1995) - 2160p.mkv",
+    "media_updates": [
+      {"path": "/media2/library/movies/Heat (1995)/Heat (1995) - 1080p.mkv", "update_type": "deleted"},
+      {"path": "/media2/library/movies/Heat (1995)/Heat (1995) - 2160p.mkv", "update_type": "created"}
+    ]
+  },
+  "media_files": [
+    {
+      "id": "mf-old",
+      "path": "/media2/library/movies/Heat (1995)/Heat (1995) - 1080p.mkv",
+      "previous_path": "/downloads/complete/Heat.1995.1080p.BluRay.x264-OLD/heat.1080p.mkv",
+      "size_bytes": 10737418240,
+      "quality": "1080p"
+    },
+    {
+      "id": "mf-new",
+      "path": "/media2/library/movies/Heat (1995)/Heat (1995) - 2160p.mkv",
+      "previous_path": "/downloads/complete/Heat.1995.2160p.UHD.BluRay.x265-GRP/heat.2160p.mkv",
+      "size_bytes": 21474836480,
+      "quality": "2160p"
+    }
+  ]
 }

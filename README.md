@@ -41,8 +41,22 @@ scryer pushes events to the bridge, which forwards them to the tofa webhooks tof
 2. Create a channel with method `POST`, content type `application/json` and URL
    `http://<host>:8080/scryer/events/<token>`, where `<token>` equals `SCRYER_EVENTS_TOKEN`.
    A wrong token returns 404.
-3. Subscribe it to grab, download, import complete, upgrade, rename, title added, title deleted and
-   file deleted.
+3. Subscribe it to grab, import complete, upgrade, rename, title added, title deleted and file
+   deleted.
+
+| scryer event | tofa event |
+|---|---|
+| `grab` | `Grab` |
+| `import_complete`, `upgrade` | `Download` (an upgrade adds the replaced files as `deletedFiles`) |
+| `rename` | `Rename` |
+| `file_deleted` | `MovieFileDelete` / `EpisodeFileDelete` |
+| `title_added` | `MovieAdded` / `SeriesAdd` |
+| `title_deleted` | `MovieDelete` / `SeriesDelete` |
+| `test` | `Test` |
+
+scryer's `download` event reports a *failed* download, so the bridge does not relay it. Every other
+event type, known or not, is acknowledged with `200 {"delivered":0}` and dropped; tofa also polls
+the queue and library, so a dropped event delays an update rather than losing it.
 
 The bridge answers 503 with `Retry-After` when tofa is unreachable, so scryer's own retry applies.
 

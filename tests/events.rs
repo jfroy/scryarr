@@ -6,7 +6,10 @@ use http_body_util::BodyExt;
 use scryarr::AppState;
 use scryarr::domain::{Facet, Flavor};
 use scryarr::events::translate::to_tofa;
-use scryer_plugin_sdk::PluginNotificationRequest;
+use scryer_plugin_sdk::{
+    NotificationEventType, NotificationMediaUpdateType, PluginNotificationMediaUpdate,
+    PluginNotificationRequest,
+};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use wiremock::matchers::{body_partial_json, method, path};
@@ -47,37 +50,42 @@ fn movie_event_without_tmdb_id_is_none() {
 }
 
 #[test]
-fn download_episode_translates_season() {
-    let v = translate("download_episode", Flavor::Sonarr).unwrap();
+fn import_complete_episode_uses_library_path_and_season() {
+    let v = translate("import_complete_episode", Flavor::Sonarr).unwrap();
     assert_eq!(v["eventType"], "Download");
     assert_eq!(v["series"]["tvdbId"], 81189);
-    assert_eq!(v["episodeFile"]["seasonNumber"], 2);
+    assert_eq!(v["series"]["path"], "/media2/library/tv/Show");
     assert_eq!(
-        v["episodeFile"]["path"],
-        "/media2/library/tv/Show/Season 02/Show S02E03.mkv"
+        v["episodeFile"],
+        json!({"path": "/media2/library/tv/Show/Season 02/Show - S02E03.mkv", "seasonNumber": 2})
     );
+    assert!(v.get("isUpgrade").is_none());
+    assert!(v.get("deletedFiles").is_none());
 }
 
 #[test]
 fn episode_file_without_season_is_none() {
-    let mut req = request("download_episode");
+    let mut req = request("import_complete_episode");
     req.episode = None;
+    req.episodes.clear();
     assert!(to_tofa(&req, Flavor::Sonarr).is_none());
-    let mut req = request("download_episode");
-    req.event_type = scryer_plugin_sdk::NotificationEventType::FileDeleted;
-    req.episode.as_mut().unwrap().season_number = None;
+
+    let mut req = request("file_deleted_episode");
+    req.episodes[0].season_number = None;
     assert!(to_tofa(&req, Flavor::Sonarr).is_none());
 }
 
 #[test]
 fn multi_season_event_uses_the_files_own_season() {
-    let mut req = request("download_episode");
-    let file = req.media_files[0].path.clone();
-    let mut a = req.episode.take().unwrap();
+    let mut req = request("import_complete_episode");
+    let file = req.file.as_ref().unwrap().primary_path.clone();
+    let mut a = req.episodes[0].clone();
     a.season_number = Some("1".into());
-    let mut b = a.clone();
+    a.media_file_path = None;
+    let mut b = req.episodes[0].clone();
     b.season_number = Some("3".into());
-    b.media_file_path = Some(file);
+    b.media_file_path = file;
+    req.episode = None;
     req.episodes = vec![a, b];
     let v = to_tofa(&req, Flavor::Sonarr).map(|p| serde_json::to_value(p).unwrap());
     assert_eq!(v.unwrap()["episodeFile"]["seasonNumber"], 3);
@@ -89,31 +97,115 @@ fn multi_season_event_uses_the_files_own_season() {
 }
 
 #[test]
-fn upgrade_lists_deleted_files() {
+fn download_failure_is_not_relayed() {
+    assert!(!scryarr::events::translate::relayed(
+        NotificationEventType::Download
+    ));
+    let mut req = request("download_failed_episode");
+    assert!(to_tofa(&req, Flavor::Sonarr).is_none());
+    req.file = request("import_complete_episode").file;
+    req.media_files = request("import_complete_episode").media_files;
+    assert!(to_tofa(&req, Flavor::Sonarr).is_none());
+}
+
+#[test]
+fn upgrade_reports_new_file_and_replaced_library_path() {
     let v = translate("upgrade_movie", Flavor::Radarr).unwrap();
     assert_eq!(v["eventType"], "Download");
     assert_eq!(v["isUpgrade"], true);
     assert_eq!(
         v["movieFile"]["path"],
-        "/media2/library/movies/Heat (1995)/Heat.2160p.mkv"
+        "/media2/library/movies/Heat (1995)/Heat (1995) - 2160p.mkv"
     );
     assert_eq!(
         v["deletedFiles"],
-        json!([{"path": "/media2/library/movies/Heat (1995)/Heat.1080p.mkv"}])
+        json!([{"path": "/media2/library/movies/Heat (1995)/Heat (1995) - 1080p.mkv"}])
     );
 }
 
 #[test]
-fn rename_pairs_paths() {
+fn upgrade_without_primary_path_skips_the_previous_file() {
+    let mut req = request("upgrade_movie");
+    req.file.as_mut().unwrap().primary_path = None;
+    let v = serde_json::to_value(to_tofa(&req, Flavor::Radarr).unwrap()).unwrap();
+    assert_eq!(
+        v["movieFile"]["path"],
+        "/media2/library/movies/Heat (1995)/Heat (1995) - 2160p.mkv"
+    );
+    req.file = None;
+    let v = serde_json::to_value(to_tofa(&req, Flavor::Radarr).unwrap()).unwrap();
+    assert_eq!(
+        v["movieFile"]["path"],
+        "/media2/library/movies/Heat (1995)/Heat (1995) - 2160p.mkv"
+    );
+    assert_eq!(v["deletedFiles"], json!([]));
+}
+
+#[test]
+fn upgrade_in_place_deletes_nothing() {
+    let mut req = request("upgrade_movie");
+    let path = "/media2/library/movies/Heat (1995)/Heat (1995).mkv";
+    let file = req.file.as_mut().unwrap();
+    file.primary_path = Some(path.into());
+    file.media_updates = vec![PluginNotificationMediaUpdate {
+        path: path.into(),
+        update_type: NotificationMediaUpdateType::Modified,
+    }];
+    let v = serde_json::to_value(to_tofa(&req, Flavor::Radarr).unwrap()).unwrap();
+    assert_eq!(v["movieFile"]["path"], path);
+    assert_eq!(v["deletedFiles"], json!([]));
+}
+
+#[test]
+fn upgrade_episode_keys_season_on_the_new_file() {
+    let v = translate("upgrade_episode", Flavor::Sonarr).unwrap();
+    assert_eq!(v["isUpgrade"], true);
+    assert_eq!(
+        v["episodeFile"],
+        json!({"path": "/media2/library/tv/Show/Season 02/Show - S02E03 [2160p].mkv", "seasonNumber": 2})
+    );
+    assert_eq!(
+        v["deletedFiles"],
+        json!([{"path": "/media2/library/tv/Show/Season 02/Show - S02E03 [1080p].mkv"}])
+    );
+}
+
+#[test]
+fn rename_pairs_library_paths() {
     let v = translate("rename_episode", Flavor::Sonarr).unwrap();
     assert_eq!(v["eventType"], "Rename");
     assert_eq!(
         v["renamedEpisodeFiles"],
-        json!([{
-            "path": "/media2/library/tv/Show/Season 02/New.mkv",
-            "previousPath": "/media2/library/tv/Show/Season 02/Old.mkv",
-        }])
+        json!([
+            {
+                "path": "/media2/library/tv/Show/Season 02/Show - S02E01 - Seven Thirty-Seven.mkv",
+                "previousPath": "/media2/library/tv/Show/Season 02/Show.S02E01.mkv",
+            },
+            {
+                "path": "/media2/library/tv/Show/Season 02/Show - S02E02 - Grilled.mkv",
+                "previousPath": "/media2/library/tv/Show/Season 02/Show.S02E02.mkv",
+            },
+        ])
     );
+}
+
+#[test]
+fn file_deleted_episode_reports_the_deleted_path() {
+    let v = translate("file_deleted_episode", Flavor::Sonarr).unwrap();
+    assert_eq!(v["eventType"], "EpisodeFileDelete");
+    assert_eq!(
+        v["episodeFile"],
+        json!({"path": "/media2/library/tv/Show/Season 02/Show - S02E03.mkv", "seasonNumber": 2})
+    );
+}
+
+#[test]
+fn grab_series_lists_episode_seasons() {
+    let mut req = request("import_complete_episode");
+    req.event_type = NotificationEventType::Grab;
+    let v = serde_json::to_value(to_tofa(&req, Flavor::Sonarr).unwrap()).unwrap();
+    assert_eq!(v["eventType"], "Grab");
+    assert_eq!(v["episodes"], json!([{"seasonNumber": 2}]));
 }
 
 #[test]
@@ -176,8 +268,57 @@ async fn wrong_token_is_404() {
 #[tokio::test]
 async fn invalid_body_is_400() {
     let state = common::test_state().await;
-    let (status, _, _) = post(&state, "test-token", "{}".into()).await;
+    for body in ["{}", "not json", r#"{"event_type": 3}"#] {
+        let (status, _, _) = post(&state, "test-token", body.into()).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+    let mut grab: Value = serde_json::from_str(&fixture("grab_movie")).unwrap();
+    grab.as_object_mut().unwrap().remove("app");
+    let (status, _, _) = post(&state, "test-token", grab.to_string()).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+async fn dropped_count(state: &AppState) -> String {
+    state
+        .metrics
+        .render()
+        .lines()
+        .find(|l| l.starts_with(r#"scryarr_webhook_deliveries_total{result="dropped"}"#))
+        .unwrap_or_default()
+        .to_owned()
+}
+
+#[tokio::test]
+async fn unknown_or_unmapped_event_is_acknowledged_and_dropped() {
+    let tofa = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&tofa)
+        .await;
+    let state = common::test_state().await;
+    register(&state, &format!("{}/hook", tofa.uri())).await;
+
+    let unknown = json!({"event_type": "something_new", "whatever": [1, 2, 3]});
+    let (status, _, body) = post(&state, "test-token", unknown.to_string()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["delivered"], 0);
+
+    let mut subtitle: Value = serde_json::from_str(&fixture("subtitle_downloaded")).unwrap();
+    subtitle.as_object_mut().unwrap().remove("app");
+    let (status, _, body) = post(&state, "test-token", subtitle.to_string()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["delivered"], 0);
+
+    let (status, _, body) = post(&state, "test-token", fixture("download_failed_episode")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["delivered"], 0);
+
+    assert_eq!(
+        dropped_count(&state).await,
+        r#"scryarr_webhook_deliveries_total{result="dropped"} 3"#
+    );
+    tofa.verify().await;
 }
 
 #[tokio::test]
