@@ -47,7 +47,7 @@ fn title(id: &str, lib: &str, facet: &str, ext: &[(&str, &str)]) -> Value {
         "imdbId": null, "qualityProfileId": null, "rootFolderPath": null,
         "minAvailability": null, "monitorType": null, "sizeBytes": 100,
         "episodesOwned": 3, "episodesMonitored": 4, "episodesTotal": 10,
-        "createdAt": "2024-01-01T00:00:00Z", "posterUrl": null
+        "createdAt": "2024-01-01T00:00:00Z", "posterUrl": null, "collections": []
     })
 }
 
@@ -120,6 +120,51 @@ async fn series_list_skips_titles_without_tvdb() {
     assert_eq!(body[0]["tvdbId"], 81189);
     assert_eq!(body[0]["seasons"], json!([]));
     assert_eq!(body[0]["statistics"]["episodeFileCount"], 3);
+}
+
+#[tokio::test]
+async fn series_list_includes_seasons_in_one_query() {
+    let (server, st) = setup("SERIES").await;
+    let mut s1 = title("s1", "L1", "SERIES", &[("tvdb", "81189")]);
+    s1["collections"] = json!([
+        {"id": "c1", "collectionType": "SEASON", "collectionIndex": "1", "monitored": false,
+         "episodesOwned": 7, "episodesMonitored": 0, "episodesTotal": 7},
+        {"id": "c2", "collectionType": "SEASON", "collectionIndex": "2", "monitored": true,
+         "episodesOwned": 3, "episodesMonitored": 4, "episodesTotal": 10},
+        {"id": "cs", "collectionType": "SPECIALS", "collectionIndex": "0", "monitored": false,
+         "episodesOwned": 0, "episodesMonitored": 0, "episodesTotal": 2}
+    ]);
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_partial_json(json!({"operationName": "TitlesPage"})))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"data": {"titles": {"hasMore": false, "items": [s1]}}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (code, body) = get(&st, "/sonarr/L1/api/v3/series").await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    assert_eq!(
+        body[0]["seasons"],
+        json!([
+            {"seasonNumber": 1, "monitored": false,
+             "statistics": {"episodeFileCount": 7, "episodeCount": 0, "totalEpisodeCount": 7,
+                            "sizeOnDisk": 0, "percentOfEpisodes": 0.0}},
+            {"seasonNumber": 2, "monitored": true,
+             "statistics": {"episodeFileCount": 3, "episodeCount": 4, "totalEpisodeCount": 10,
+                            "sizeOnDisk": 0, "percentOfEpisodes": 75.0}}
+        ])
+    );
+    assert_eq!(body[0]["statistics"]["seasonCount"], 2);
+    let reqs = server.received_requests().await.unwrap();
+    assert!(
+        reqs.iter()
+            .all(|r| !String::from_utf8_lossy(&r.body).contains("TitleDetail")),
+        "no per-title detail query"
+    );
+    server.verify().await;
 }
 
 #[tokio::test]

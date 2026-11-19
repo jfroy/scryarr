@@ -68,34 +68,30 @@ pub fn movie(title: &scryer::Title, qp_id: Option<i32>) -> Option<RadarrMovie> {
 
 pub fn series(
     title: &scryer::Title,
-    detail: Option<&scryer::TitleDetail>,
+    collections: &[scryer::Season],
     qp_id: Option<i32>,
 ) -> Option<SonarrSeries> {
     let tvdb_id = external_id(title, "tvdb")?;
     let owned = title.episodes_owned.unwrap_or(0);
     let monitored = title.episodes_monitored.unwrap_or(0);
-    let seasons: Vec<SonarrSeason> = detail
-        .map(|d| {
-            d.seasons
-                .iter()
-                .filter(|s| s.kind == CollectionKind::Season)
-                .filter_map(|s| {
-                    let number: i32 = s.index.trim().parse().ok()?;
-                    Some(SonarrSeason {
-                        season_number: number,
-                        monitored: s.monitored,
-                        statistics: SeasonStatistics {
-                            episode_file_count: s.owned,
-                            episode_count: s.monitored_count,
-                            total_episode_count: s.total,
-                            size_on_disk: 0,
-                            percent_of_episodes: percent(s.owned, s.monitored_count),
-                        },
-                    })
-                })
-                .collect()
+    let seasons: Vec<SonarrSeason> = collections
+        .iter()
+        .filter(|s| s.kind == CollectionKind::Season)
+        .filter_map(|s| {
+            let number: i32 = s.index.trim().parse().ok()?;
+            Some(SonarrSeason {
+                season_number: number,
+                monitored: s.monitored,
+                statistics: SeasonStatistics {
+                    episode_file_count: s.owned,
+                    episode_count: s.monitored_count,
+                    total_episode_count: s.total,
+                    size_on_disk: 0,
+                    percent_of_episodes: percent(s.owned, s.monitored_count),
+                },
+            })
         })
-        .unwrap_or_default();
+        .collect();
     Some(SonarrSeries {
         id: tvdb_id,
         title: title.name.clone(),

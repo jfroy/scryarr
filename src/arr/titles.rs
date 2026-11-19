@@ -84,7 +84,7 @@ pub(super) async fn find_title(
         .ok_or_else(|| AppError::NotFound("title not found".into()))
 }
 
-async fn all_titles(st: &AppState, conn: &Conn) -> Result<Vec<scryer::Title>, AppError> {
+async fn all_titles(st: &AppState, conn: &Conn) -> Result<Vec<scryer::ListedTitle>, AppError> {
     let mut out = Vec::new();
     let mut offset = 0;
     loop {
@@ -101,7 +101,7 @@ async fn all_titles(st: &AppState, conn: &Conn) -> Result<Vec<scryer::Title>, Ap
             )
             .await?;
         let done = !data.titles.has_more || data.titles.items.is_empty();
-        out.extend(data.titles.items.into_iter().map(scryer::Title::from));
+        out.extend(data.titles.items.into_iter().map(scryer::ListedTitle::from));
         if done {
             return Ok(out);
         }
@@ -136,8 +136,8 @@ pub async fn list_movies(
     require(&conn, Flavor::Radarr)?;
     let mut out = Vec::new();
     for t in all_titles(&st, &conn).await? {
-        let qp = qp_id(&st, &conn, &t).await?;
-        out.extend(convert::movie(&t, qp));
+        let qp = qp_id(&st, &conn, &t.title).await?;
+        out.extend(convert::movie(&t.title, qp));
     }
     Ok(Json(out))
 }
@@ -173,7 +173,7 @@ pub async fn list_series(
             Ok(t) => {
                 let qp = qp_id(&st, &conn, &t).await?;
                 let d = detail(&st, &conn, &t).await?;
-                out.extend(convert::series(&t, Some(&d), qp));
+                out.extend(convert::series(&t, &d.seasons, qp));
             }
             Err(AppError::NotFound(_)) => {}
             Err(e) => return Err(e),
@@ -181,8 +181,8 @@ pub async fn list_series(
         return Ok(Json(out));
     }
     for t in all_titles(&st, &conn).await? {
-        let qp = qp_id(&st, &conn, &t).await?;
-        out.extend(convert::series(&t, None, qp));
+        let qp = qp_id(&st, &conn, &t.title).await?;
+        out.extend(convert::series(&t.title, &t.seasons, qp));
     }
     Ok(Json(out))
 }
@@ -196,7 +196,7 @@ pub async fn get_series(
     let t = find_title(&st, &conn, id).await?;
     let qp = qp_id(&st, &conn, &t).await?;
     let d = detail(&st, &conn, &t).await?;
-    convert::series(&t, Some(&d), qp)
+    convert::series(&t, &d.seasons, qp)
         .map(Json)
         .ok_or_else(|| AppError::NotFound("title not found".into()))
 }
@@ -283,7 +283,7 @@ pub async fn lookup_series(
             let qp = qp_id(&st, &conn, &t).await?;
             let d = detail(&st, &conn, &t).await?;
             return Ok(Json(
-                convert::series(&t, Some(&d), qp).into_iter().collect(),
+                convert::series(&t, &d.seasons, qp).into_iter().collect(),
             ));
         }
         Err(AppError::NotFound(_)) => {}
@@ -727,7 +727,8 @@ pub async fn add_series(
     if d.is_none() {
         d = detail(&st, &conn, &t).await.ok();
     }
-    convert::series(&t, d.as_ref(), qp_arr)
+    let seasons = d.as_ref().map(|d| d.seasons.as_slice()).unwrap_or_default();
+    convert::series(&t, seasons, qp_arr)
         .map(|s| (StatusCode::CREATED, Json(s)))
         .ok_or_else(|| AppError::Upstream("scryer title has no tvdb id".into()))
 }
@@ -904,7 +905,7 @@ pub async fn update_series(
         d.title = set_monitored(&st, &conn, &t.id, monitored).await?;
     }
     let qp = qp_id(&st, &conn, &d.title).await?;
-    convert::series(&d.title, Some(&d), qp)
+    convert::series(&d.title, &d.seasons, qp)
         .map(|s| (StatusCode::ACCEPTED, Json(s)))
         .ok_or_else(|| AppError::NotFound("title not found".into()))
 }

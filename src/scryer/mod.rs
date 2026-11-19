@@ -7,7 +7,7 @@ use url::Url;
 use crate::error::AppError;
 use crate::metrics::Metrics;
 
-pub use views::{CollectionKind, EpisodeView, MediaFile, Season, Title, TitleDetail};
+pub use views::{CollectionKind, EpisodeView, ListedTitle, MediaFile, Season, Title, TitleDetail};
 
 pub const SCRYER_SCHEMA_VERSION: &str = "0.22.4";
 

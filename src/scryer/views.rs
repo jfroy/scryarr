@@ -70,6 +70,13 @@ pub struct Season {
     pub episodes: Vec<EpisodeView>,
 }
 
+/// A title from a catalog page, with its collections but no episodes.
+#[derive(Debug, Clone)]
+pub struct ListedTitle {
+    pub title: Title,
+    pub seasons: Vec<Season>,
+}
+
 #[derive(Debug, Clone)]
 pub struct TitleDetail {
     pub title: Title,
@@ -91,6 +98,16 @@ fn facet_of<T: Serialize>(v: &T) -> Facet {
             tracing::warn!("unknown scryer facet; treating as MOVIE");
             Facet::Movie
         })
+}
+
+fn collection_kind<T: Serialize>(t: &T) -> CollectionKind {
+    match enum_string(t).as_deref() {
+        Some("SEASON") => CollectionKind::Season,
+        Some("MOVIE") => CollectionKind::Movie,
+        Some("ARC") => CollectionKind::Arc,
+        Some("SPECIALS") => CollectionKind::Specials,
+        other => CollectionKind::Other(other.unwrap_or_default().to_string()),
+    }
 }
 
 macro_rules! title_from_fields {
@@ -142,13 +159,7 @@ impl From<title_detail::TitleDetailTitle> for TitleDetail {
             .map(|c| Season {
                 id: c.id,
                 index: c.collection_index,
-                kind: match enum_string(&c.collection_type).as_deref() {
-                    Some("SEASON") => CollectionKind::Season,
-                    Some("MOVIE") => CollectionKind::Movie,
-                    Some("ARC") => CollectionKind::Arc,
-                    Some("SPECIALS") => CollectionKind::Specials,
-                    other => CollectionKind::Other(other.unwrap_or_default().to_string()),
-                },
+                kind: collection_kind(&c.collection_type),
                 monitored: c.monitored,
                 owned: c.episodes_owned.unwrap_or(0),
                 monitored_count: c.episodes_monitored.unwrap_or(0),
@@ -182,6 +193,28 @@ impl From<title_detail::TitleDetailTitle> for TitleDetail {
             title: t.title_fields.into(),
             seasons,
             media_files,
+        }
+    }
+}
+
+impl From<titles_page::TitlesPageTitlesItems> for ListedTitle {
+    fn from(t: titles_page::TitlesPageTitlesItems) -> Self {
+        ListedTitle {
+            title: t.title_fields.into(),
+            seasons: t
+                .collections
+                .into_iter()
+                .map(|c| Season {
+                    id: c.id,
+                    index: c.collection_index,
+                    kind: collection_kind(&c.collection_type),
+                    monitored: c.monitored,
+                    owned: c.episodes_owned.unwrap_or(0),
+                    monitored_count: c.episodes_monitored.unwrap_or(0),
+                    total: c.episodes_total.unwrap_or(0),
+                    episodes: Vec::new(),
+                })
+                .collect(),
         }
     }
 }

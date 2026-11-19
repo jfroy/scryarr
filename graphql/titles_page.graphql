@@ -1,4 +1,4 @@
-query TitlesPage($facet: MediaFacetValue, $libraryIds: [ID!], $limit: Int, $offset: Int) { titles(facet: $facet, libraryIds: $libraryIds, limit: $limit, offset: $offset) { items { ...TitleFields } hasMore } }
+query TitlesPage($facet: MediaFacetValue, $libraryIds: [ID!], $limit: Int, $offset: Int) { titles(facet: $facet, libraryIds: $libraryIds, limit: $limit, offset: $offset) { items { ...TitleFields collections { id collectionType collectionIndex monitored episodesOwned episodesMonitored episodesTotal } } hasMore } }
 
 fragment TitleFields on TitlePayload {
   id libraryId name facet monitored year slug overview tags
