@@ -1,6 +1,40 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    ":automergeMinor",
+    ":automergeDigest",
+    ":semanticCommits"
+  ],
+  "automergeStrategy": "squash",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Rust toolchain pins outside the Dockerfile FROM line",
+      "managerFilePatterns": [
+        "/^rust-toolchain\\.toml$/",
+        "/^Dockerfile$/",
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "channel = \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\"",
+        "ARG RUST_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)",
+        "toolchain: (?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "rust",
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Bump every Rust toolchain pin in one pull request",
+      "matchDatasources": ["docker"],
+      "matchDepNames": ["rust"],
+      "groupName": "rust toolchain"
+    }
   ]
 }
