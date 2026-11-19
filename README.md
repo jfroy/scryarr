@@ -94,6 +94,22 @@ docker run --rm \
 The image is multi-arch (`linux/amd64`, `linux/arm64`), runs as uid/gid 1000 on distroless, and works
 with a read-only root filesystem given a writable `/data` and `/tmp`.
 
+Releases are tagged `vX.Y.Z` and published as `ghcr.io/jfroy/scryarr:X.Y.Z`.
+
+## Tracking scryer releases
+
+scryarr is built against a vendored copy of scryer's GraphQL schema (`graphql/schema.graphql`) and a
+pinned `scryer-plugin-sdk`. The `scryer-sync` workflow checks scryer's latest GitHub release every
+four hours. When a new one appears, it:
+
+1. Vendors that release's schema and plugin SDK version.
+2. Builds and tests scryarr against them. Every GraphQL operation is checked against the schema at
+   compile time.
+3. Commits the result and cuts a patch release.
+
+If scryarr no longer builds or passes its tests, the run fails and opens an issue titled
+"scryer X.Y.Z breaks scryarr". scryer itself still updates; only the bridge waits for a fix.
+
 ## Safety
 
 The bridge never deletes files except for tofa's `DELETE /api/v3/episodefile/{id}`; title deletion

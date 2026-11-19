@@ -1,0 +1,129 @@
+name: scryer-sync
+
+# Follow scryer's releases: vendor the new GraphQL schema and plugin SDK,
+# build and test against them, then cut a patch release of scryarr.
+# Pushes made with GITHUB_TOKEN do not trigger other workflows, so the
+# release workflow is dispatched explicitly.
+
+on:
+  schedule:
+    - cron: "23 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scryer-sync
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  SCRYER_REPO: scryer-media/scryer
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: scryer
+        name: Compare the vendored scryer version with the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh api "repos/${SCRYER_REPO}/releases/latest" --jq .tag_name)"
+          version="${tag#scryer-v}"
+          current="$(sed -n 's/^pub const SCRYER_SCHEMA_VERSION: &str = "\(.*\)";$/\1/p' src/scryer/mod.rs)"
+          if [ -z "$version" ] || [ -z "$current" ]; then
+            echo "could not read versions (latest=${tag:-?}, vendored=${current:-?})" >&2
+            exit 1
+          fi
+          echo "latest scryer ${version}, vendored ${current}"
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "changed=$([ "$version" = "$current" ] && echo false || echo true)"
+          } >> "$GITHUB_OUTPUT"
+
+      - if: steps.scryer.outputs.changed == 'true'
+        name: Vendor the scryer schema and plugin SDK
+        env:
+          TAG: ${{ steps.scryer.outputs.tag }}
+          VERSION: ${{ steps.scryer.outputs.version }}
+        run: |
+          raw="https://raw.githubusercontent.com/${SCRYER_REPO}/${TAG}"
+          curl -fsSL "${raw}/api/graphql/schema.graphql" -o graphql/schema.graphql
+          sdk="$(curl -fsSL "${raw}/crates/scryer-plugin-sdk/Cargo.toml" | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n1)"
+          if [ -z "$sdk" ]; then
+            echo "could not read the scryer-plugin-sdk version at ${TAG}" >&2
+            exit 1
+          fi
+          sed -i "s/^scryer-plugin-sdk = \"=.*\"$/scryer-plugin-sdk = \"=${sdk}\"/" Cargo.toml
+          sed -i "s/^pub const SCRYER_SCHEMA_VERSION: &str = \".*\";$/pub const SCRYER_SCHEMA_VERSION: \&str = \"${VERSION}\";/" src/scryer/mod.rs
+          grep -q "^scryer-plugin-sdk = \"=${sdk}\"$" Cargo.toml
+          grep -q "SCRYER_SCHEMA_VERSION: &str = \"${VERSION}\";" src/scryer/mod.rs
+
+      - if: steps.scryer.outputs.changed == 'true'
+        id: bump
+        name: Bump the scryarr patch version
+        run: |
+          current="$(sed -n '0,/^version = "/s/^version = "\(.*\)"$/\1/p' Cargo.toml)"
+          IFS=. read -r major minor patch <<< "$current"
+          next="${major}.${minor}.$((patch + 1))"
+          sed -i "0,/^version = \"${current}\"$/s//version = \"${next}\"/" Cargo.toml
+          if git rev-parse -q --verify "refs/tags/v${next}" >/dev/null; then
+            echo "tag v${next} already exists" >&2
+            exit 1
+          fi
+          echo "next=${next}" >> "$GITHUB_OUTPUT"
+
+      - if: steps.scryer.outputs.changed == 'true'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+
+      - if: steps.scryer.outputs.changed == 'true'
+        uses: Swatinem/rust-cache@v2
+
+      - if: steps.scryer.outputs.changed == 'true'
+        name: Build and test against the new schema
+        run: |
+          cargo update -p scryer-plugin-sdk
+          cargo update --workspace
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
+
+      - if: steps.scryer.outputs.changed == 'true'
+        name: Commit, tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.scryer.outputs.version }}
+          NEXT: ${{ steps.bump.outputs.next }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add graphql/schema.graphql Cargo.toml Cargo.lock src/scryer/mod.rs
+          git commit -m "chore: track scryer ${VERSION}"
+          git tag -a "v${NEXT}" -m "scryarr ${NEXT} (scryer ${VERSION})"
+          git push origin HEAD:main "v${NEXT}"
+          gh workflow run release.yaml --ref "v${NEXT}" -f version="${NEXT}"
+
+      - if: failure() && steps.scryer.outputs.changed == 'true'
+        name: Open an issue when the new scryer release breaks the build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.scryer.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="scryer ${VERSION} breaks scryarr"
+          if [ -z "$(gh issue list --state open --search "in:title \"${title}\"" --json number --jq '.[0].number')" ]; then
+            gh issue create --title "${title}" --body "The scryer-sync run could not build or test scryarr against scryer ${VERSION}: ${RUN_URL}"
+          fi
