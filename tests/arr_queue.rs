@@ -519,3 +519,77 @@ async fn history_series_filters_on_resolved_season() {
     .await;
     assert_eq!(v.as_array().unwrap().len(), 5);
 }
+
+async fn mock_title(server: &MockServer, tmdb: &str, id: &str) {
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_partial_json(json!({
+            "operationName": "TitlesByExternalIds", "variables": {"values": [tmdb]}
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({"data": {"titlesByExternalIds": [title(id, "L1", "MOVIE", &[("tmdb", tmdb)])]}}),
+        ))
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn command_search_tolerates_a_running_search() {
+    let (server, state) = setup("MOVIE").await;
+    mock_title(&server, "11", "T1").await;
+    mock_title(&server, "22", "T2").await;
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_partial_json(json!({
+            "operationName": "TriggerSearch", "variables": {"input": {"titleId": "T1"}}
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": null, "errors": [{
+            "message": "validation: Another search is running.",
+            "extensions": {"code": "VALIDATION_ERROR", "reason": "ACQUISITION_ANOTHER_SEARCH_RUNNING"}
+        }]})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_partial_json(json!({
+            "operationName": "TriggerSearch", "variables": {"input": {"titleId": "T2"}}
+        })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"data": {"triggerAcquisitionSearch": {"id": "job"}}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (s, v) = send(
+        &state,
+        Method::POST,
+        "/radarr/L1/api/v3/command",
+        Some(json!({"name": "MoviesSearch", "movieIds": [11, 22]})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+    assert_eq!(v["name"], "MoviesSearch");
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn command_search_other_scryer_errors_still_fail() {
+    let (server, state) = setup("MOVIE").await;
+    mock_title(&server, "11", "T1").await;
+    mock_op(
+        &server,
+        "TriggerSearch",
+        json!({"data": null, "errors": [{"message": "unauthorized: no", "extensions": {"code": "UNAUTHORIZED"}}]}),
+    )
+    .await;
+    let (s, _) = send(
+        &state,
+        Method::POST,
+        "/radarr/L1/api/v3/command",
+        Some(json!({"name": "MoviesSearch", "movieIds": [11]})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+}

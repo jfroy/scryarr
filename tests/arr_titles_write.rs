@@ -862,3 +862,64 @@ async fn post_movie_omits_unsupported_availability() {
     let v = post_movie_with_availability("tba").await;
     assert!(v["input"]["options"].get("minAvailability").is_none());
 }
+
+fn search_running() -> Value {
+    json!({"data": null, "errors": [{
+        "message": "validation: Another search is running. Wait for it to finish or cancel it before starting this search.",
+        "extensions": {"code": "VALIDATION_ERROR", "reason": "ACQUISITION_ANOTHER_SEARCH_RUNNING"}
+    }]})
+}
+
+#[tokio::test]
+async fn post_movie_succeeds_when_search_is_refused() {
+    let (server, st) = setup("MOVIE").await;
+    let qpid = qp(&st, "qp-uuid").await;
+    mock_op(&server, "MetadataMovie", movie_metadata()).await;
+    mock_op(
+        &server,
+        "AddTitle",
+        add_result(
+            title("m1", "MOVIE", &[("tmdb", "603")], Some("qp-uuid"), true),
+            false,
+        ),
+    )
+    .await;
+    expect_op(&server, "TriggerSearch", search_running(), 1).await;
+    let mut body = movie_body(true);
+    body["qualityProfileId"] = json!(qpid);
+    let (code, resp) = send(&st, Method::POST, "/radarr/L1/api/v3/movie", Some(body)).await;
+    assert_eq!(code, StatusCode::CREATED, "{resp}");
+    assert_eq!(resp["id"], 603);
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn post_series_succeeds_when_search_fails() {
+    let (server, st) = setup("SERIES").await;
+    let qpid = qp(&st, "qp-uuid").await;
+    common::scryer_mock::mock_op_status(&server, "MetadataSeries", 500).await;
+    mock_op(
+        &server,
+        "AddTitle",
+        add_result(
+            title("s1", "SERIES", &[("tvdb", "81189")], Some("qp-uuid"), true),
+            false,
+        ),
+    )
+    .await;
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_partial_json(json!({"operationName": "TriggerSearch"})))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let body = json!({
+        "title": "Show", "tvdbId": 81189, "qualityProfileId": qpid, "monitored": true,
+        "seasons": [{"seasonNumber": 1, "monitored": true}],
+        "addOptions": {"searchForMissingEpisodes": true}
+    });
+    let (code, resp) = send(&st, Method::POST, "/sonarr/L1/api/v3/series", Some(body)).await;
+    assert_eq!(code, StatusCode::CREATED, "{resp}");
+    server.verify().await;
+}

@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::Conn;
 use super::model::{Command, HistoryRecord, QueueItem, QueuePage};
-use super::titles::{find_title, require};
+use super::titles::{self, find_title, require};
 use crate::AppState;
 use crate::domain::Flavor;
 use crate::error::AppError;
@@ -18,8 +18,8 @@ use crate::scryer;
 use crate::scryer::CollectionKind;
 use crate::scryer::ops::{
     DeleteDownload, IgnoreDownload, MarkFailed, QueuePage as QueuePageOp, TitleDetail,
-    TitleDownloads, TitleHistory, TriggerSearch, delete_download, ignore_download, mark_failed,
-    queue_page, title_detail, title_downloads, title_history, trigger_search,
+    TitleDownloads, TitleHistory, delete_download, ignore_download, mark_failed, queue_page,
+    title_detail, title_downloads, title_history,
 };
 use crate::store::IdKind;
 
@@ -594,23 +594,13 @@ pub struct CommandBody {
 
 async fn search(st: &AppState, conn: &Conn, arr_id: i32) -> Result<(), AppError> {
     let title = find_title(st, conn, arr_id).await?;
-    st.scryer
-        .run_omitting_nulls::<TriggerSearch>(
-            &conn.key,
-            trigger_search::Variables {
-                input: trigger_search::TriggerAcquisitionSearchInput {
-                    intent: Some(trigger_search::AcquisitionSearchIntentValue::AUTOMATIC),
-                    wanted_kind: None,
-                    facet: None,
-                    library_ids: None,
-                    title_id: Some(title.id),
-                    season_number: None,
-                    wanted_item_id: None,
-                },
-            },
-        )
-        .await?;
-    Ok(())
+    match titles::search(st, conn, &title.id).await {
+        Err(e) if titles::search_already_running(&e) => {
+            tracing::info!(title_id = %title.id, "scryer is already searching; search request accepted");
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 pub async fn post_command(

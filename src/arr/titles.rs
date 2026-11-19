@@ -478,9 +478,17 @@ fn monitored_seasons(seasons: &[SeasonWrite]) -> Vec<i64> {
     v
 }
 
-async fn search(st: &AppState, conn: &Conn, title_id: &str) -> Result<(), AppError> {
+/// scryer runs one acquisition search at a time and refuses the rest with this
+/// reason.
+const SEARCH_RUNNING: &str = "ACQUISITION_ANOTHER_SEARCH_RUNNING";
+
+pub(super) fn search_already_running(e: &AppError) -> bool {
+    matches!(e, AppError::Scryer { reason: Some(r), .. } if r == SEARCH_RUNNING)
+}
+
+pub(super) async fn search(st: &AppState, conn: &Conn, title_id: &str) -> Result<(), AppError> {
     st.scryer
-        .run::<TriggerSearch>(
+        .run_omitting_nulls::<TriggerSearch>(
             &conn.key,
             trigger_search::Variables {
                 input: trigger_search::TriggerAcquisitionSearchInput {
@@ -632,7 +640,7 @@ pub async fn add_movie(
         t = set_monitored(&st, &conn, &t.id, true).await?;
     }
     if body.add_options.search_for_movie {
-        search(&st, &conn, &t.id).await?;
+        search_after_add(&st, &conn, &t.id).await;
     }
     let qp_arr = qp_id(&st, &conn, &t).await?;
     convert::movie(&t, qp_arr)
@@ -713,7 +721,7 @@ pub async fn add_series(
         d = Some(current);
     }
     if body.add_options.search_for_missing_episodes {
-        search(&st, &conn, &t.id).await?;
+        search_after_add(&st, &conn, &t.id).await;
     }
     let qp_arr = qp_id(&st, &conn, &t).await?;
     if d.is_none() {
@@ -763,6 +771,14 @@ async fn set_collection(
         )
         .await?;
     Ok(())
+}
+
+/// A search after an add is best-effort: `addTitle` already wakes hydration
+/// with a wanted-item sync, which searches a monitored title by itself.
+async fn search_after_add(st: &AppState, conn: &Conn, title_id: &str) {
+    if let Err(e) = search(st, conn, title_id).await {
+        tracing::warn!(title_id, error = %e, "search after add failed; scryer searches monitored titles itself");
+    }
 }
 
 /// Brings a series scryer already has in line with tofa's per-season choices.
