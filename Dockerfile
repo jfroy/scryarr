@@ -28,9 +28,9 @@ ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
 WORKDIR /src
 COPY . .
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/src/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/src/target,id=scryarr-target-${TARGETARCH} \
     cargo build --release --locked --target "$(cat /rust-target)" && \
     install -D "target/$(cat /rust-target)/release/scryarr" /out/scryarr && \
     mkdir -p /out/data
