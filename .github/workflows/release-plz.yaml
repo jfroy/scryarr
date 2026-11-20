@@ -1,0 +1,90 @@
+name: release-plz
+
+# Keep a release pull request open for whatever merged since the last tag,
+# merge it weekly (or right after a scryer bump), then tag and release once
+# it lands. Runs as the daddy-ro GitHub App: pull requests, merges and tags
+# made with GITHUB_TOKEN would not trigger the CI and image workflows.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 15 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DADDY_RO_CLIENT_ID }}
+          private-key: ${{ secrets.DADDY_RO_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: read
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+
+      - uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+
+  release-pr:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-plz-pr
+      cancel-in-progress: false
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DADDY_RO_CLIENT_ID }}
+          private-key: ${{ secrets.DADDY_RO_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+
+      - uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+
+      - if: github.event_name != 'push' || startsWith(github.event.head_commit.message, 'chore(scryer):')
+        name: Merge the release pull request
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          pr="$(gh pr list --label release --state open --json number --jq '.[0].number')"
+          if [ -z "$pr" ]; then
+            echo "nothing to release"
+            exit 0
+          fi
+          for _ in 1 2 3 4 5; do
+            gh pr merge "$pr" --squash --delete-branch && exit 0
+            sleep 15
+          done
+          exit 1

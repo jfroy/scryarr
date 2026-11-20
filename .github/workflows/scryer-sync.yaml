@@ -1,7 +1,8 @@
 name: scryer-sync
 
 # Follow scryer's releases: vendor the new GraphQL schema and plugin SDK,
-# build and test against them, then cut a patch release of scryarr.
+# build and test against them, then merge the bump. release-plz releases a
+# chore(scryer) commit right away instead of waiting for the weekly release.
 
 on:
   schedule:
@@ -12,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-commit
+  group: scryer-sync
   cancel-in-progress: false
 
 env:
@@ -23,8 +24,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      actions: write
+      contents: read
       issues: write
     steps:
       - uses: actions/checkout@v7
@@ -86,12 +86,38 @@ jobs:
           cargo test --locked
 
       - if: steps.scryer.outputs.changed == 'true'
-        name: Commit, tag and release
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DADDY_RO_CLIENT_ID }}
+          private-key: ${{ secrets.DADDY_RO_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - if: steps.scryer.outputs.changed == 'true'
+        id: pr
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ steps.app.outputs.token }}
+          sign-commits: true
+          branch: scryer-sync/${{ steps.scryer.outputs.version }}
+          delete-branch: true
+          commit-message: "chore(scryer): track scryer ${{ steps.scryer.outputs.version }}"
+          title: "chore(scryer): track scryer ${{ steps.scryer.outputs.version }}"
+          body: Vendors the GraphQL schema and plugin SDK of scryer ${{ steps.scryer.outputs.tag }}. Built and tested by the scryer-sync run that opened it.
+
+      - if: steps.scryer.outputs.changed == 'true' && steps.pr.outputs.pull-request-number != ''
+        name: Merge the scryer bump
         env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.scryer.outputs.version }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.pull-request-number }}
         run: |
-          bash .github/scripts/release.sh "chore: track scryer ${VERSION}"
+          for _ in 1 2 3 4 5; do
+            gh pr merge "$PR" --squash --delete-branch && exit 0
+            sleep 15
+          done
+          exit 1
 
       - if: failure() && steps.test.outcome == 'failure'
         name: Open an issue when the new scryer release breaks the build
