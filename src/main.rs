@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, "scryarr starting");
 
-    let http = reqwest::Client::builder()
+    let http = scryarr::http_client()
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
     let metrics = scryarr::metrics::Metrics::new();

@@ -20,7 +20,7 @@ pub async fn test_state_with(scryer_url: &str) -> AppState {
         _ => None,
     })
     .unwrap();
-    let http = reqwest::Client::new();
+    let http = scryarr::http_client().build().unwrap();
     let metrics = scryarr::metrics::Metrics::new();
     AppState {
         scryer: ScryerClient::new(&config.scryer_url, http.clone()).with_metrics(metrics.clone()),

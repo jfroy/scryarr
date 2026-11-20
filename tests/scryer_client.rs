@@ -8,7 +8,10 @@ use wiremock::matchers::{body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn client(base: &str) -> ScryerClient {
-    ScryerClient::new(&Url::parse(base).unwrap(), reqwest::Client::new())
+    ScryerClient::new(
+        &Url::parse(base).unwrap(),
+        scryarr::http_client().build().unwrap(),
+    )
 }
 
 fn op_mock() -> wiremock::MockBuilder {
