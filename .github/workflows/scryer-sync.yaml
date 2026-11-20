@@ -107,17 +107,13 @@ jobs:
           body: Vendors the GraphQL schema and plugin SDK of scryer ${{ steps.scryer.outputs.tag }}. Built and tested by the scryer-sync run that opened it.
 
       - if: steps.scryer.outputs.changed == 'true' && steps.pr.outputs.pull-request-number != ''
-        name: Merge the scryer bump
+        name: Merge the scryer bump once CI passes
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.pull-request-number }}
         run: |
-          for _ in 1 2 3 4 5; do
-            gh pr merge "$PR" --squash --delete-branch && exit 0
-            sleep 15
-          done
-          exit 1
+          gh pr merge "$PR" --auto --squash
 
       - if: failure() && steps.test.outcome == 'failure'
         name: Open an issue when the new scryer release breaks the build

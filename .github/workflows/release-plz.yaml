@@ -73,7 +73,7 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app.outputs.token }}
 
       - if: github.event_name != 'push' || startsWith(github.event.head_commit.message, 'chore(scryer):')
-        name: Merge the release pull request
+        name: Merge the release pull request once CI passes
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           GH_REPO: ${{ github.repository }}
@@ -83,8 +83,4 @@ jobs:
             echo "nothing to release"
             exit 0
           fi
-          for _ in 1 2 3 4 5; do
-            gh pr merge "$pr" --squash --delete-branch && exit 0
-            sleep 15
-          done
-          exit 1
+          gh pr merge "$pr" --auto --squash
