@@ -66,7 +66,8 @@ jobs:
         with:
           toolchain: 1.100.0
 
-      - uses: release-plz/action@v0.5
+      - id: plz
+        uses: release-plz/action@v0.5
         with:
           command: release-pr
         env:
@@ -77,8 +78,13 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           GH_REPO: ${{ github.repository }}
+          PLZ_PR: ${{ steps.plz.outputs.pr }}
         run: |
-          pr="$(gh pr list --label release --state open --json number --jq '.[0].number')"
+          pr="$(jq -r '.number // empty' <<< "${PLZ_PR:-null}")"
+          if [ -z "$pr" ]; then
+            pr="$(gh pr list --state open --json number,headRefName \
+              --jq '[.[] | select(.headRefName | startswith("release-plz-"))][0].number // empty')"
+          fi
           if [ -z "$pr" ]; then
             echo "nothing to release"
             exit 0
