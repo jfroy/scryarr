@@ -1,0 +1,36 @@
+name: ghcr-cleanup
+
+# Keep ghcr to release images: drop leftover main and sha-* tags, untagged
+# manifests no release references, and signatures of deleted images.
+
+on:
+  schedule:
+    - cron: "41 16 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Only log what would be deleted
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ghcr-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          use-regex: true
+          delete-tags: ^(main|sha-[0-9a-f]+)$
+          exclude-tags: ^(latest|\d+(\.\d+){0,2})$
+          delete-untagged: true
+          delete-orphaned-images: true
+          dry-run: ${{ inputs.dry-run || false }}
