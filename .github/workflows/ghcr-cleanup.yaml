@@ -30,7 +30,7 @@ jobs:
         with:
           use-regex: true
           delete-tags: ^(main|sha-[0-9a-f]+)$
-          exclude-tags: ^(latest|\d+(\.\d+){0,2})$
+          exclude-tags: ^(latest|[0-9][0-9.]*)$
           delete-untagged: true
           delete-orphaned-images: true
           dry-run: ${{ inputs.dry-run || false }}
