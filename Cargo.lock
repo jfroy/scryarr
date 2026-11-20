@@ -1663,7 +1663,7 @@ name = "scryarr"
 version = "0.2.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "graphql_client",
  "http-body-util",
  "prometheus",
