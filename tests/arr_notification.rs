@@ -323,7 +323,7 @@ fn notification(url: &str, password: Option<&str>) -> Notification {
 
 #[tokio::test]
 async fn deliver_classifies_failures_and_empty_url() {
-    let http = reqwest::Client::new();
+    let http = scryarr::http_client().build().unwrap();
     let tofa = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/bad"))
@@ -365,7 +365,7 @@ async fn deliver_without_password_sends_no_auth_headers() {
         .respond_with(ResponseTemplate::new(200))
         .mount(&tofa)
         .await;
-    let http = reqwest::Client::new();
+    let http = scryarr::http_client().build().unwrap();
     let n = notification(&format!("{}/h", tofa.uri()), None);
     tofa::deliver(&http, &n, &TofaPayload::event("Test"))
         .await

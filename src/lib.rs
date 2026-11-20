@@ -18,6 +18,15 @@ use config::Config;
 use scryer::ScryerClient;
 use store::Store;
 
+/// A `reqwest` client builder with ring installed as rustls' process-wide
+/// crypto provider. reqwest is built with `rustls-no-provider`, so a client
+/// built any other way panics.
+pub fn http_client() -> reqwest::ClientBuilder {
+    // Fails only when a provider is already installed, which is fine.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,

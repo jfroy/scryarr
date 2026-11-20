@@ -24,3 +24,30 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+
+  # Keep native code out of the build. Only the crates listed here may compile
+  # C (or need cmake/bindgen) at build time; anything else that pulls in a C
+  # library fails the check, so a dependency update cannot add one silently.
+  native-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.100.0
+      - name: Check crates that build native code
+        run: |
+          allowed=$'libsqlite3-sys\nring'
+          found=$(cargo metadata --locked --format-version 1 | jq -r '
+            (.packages | map({key: .id, value: .name}) | from_entries) as $n
+            | .resolve.nodes[]
+            | select(any(.deps[];
+                ($n[.pkg] | IN("cc", "cmake", "bindgen"))
+                and any(.dep_kinds[]; .kind == "build")))
+            | $n[.id]' | sort -u)
+          extra=$(comm -13 <(echo "$allowed") <(echo "$found"))
+          if [ -n "$extra" ]; then
+            echo "::error::New crates build native code: $(echo $extra)"
+            exit 1
+          fi
+          echo "Native builds: $(echo $found)"
