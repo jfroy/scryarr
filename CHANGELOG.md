@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3](https://github.com/jfroy/scryarr/compare/v0.2.2...v0.2.3) - 2026-11-23
+
+### Other
+
+- *(scryer)* track scryer 0.23.0 ([#24](https://github.com/jfroy/scryarr/pull/24))
+- derive scryer version cases from the vendored schema
+
 ## [0.2.2](https://github.com/jfroy/scryarr/compare/v0.2.1...v0.2.2) - 2026-11-20
 
 ### Fixed
