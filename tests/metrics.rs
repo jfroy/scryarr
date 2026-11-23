@@ -6,18 +6,40 @@ use axum::http::{Request, StatusCode};
 use common::scryer_mock::{libraries_response, library, mock_op};
 use http_body_util::BodyExt;
 use scryarr::metrics::check_version;
+use scryarr::scryer::SCRYER_SCHEMA_VERSION;
 use serde_json::json;
 use tower::ServiceExt;
 use wiremock::MockServer;
 
+// Versions are derived from the vendored schema so that scryer-sync's bump of
+// SCRYER_SCHEMA_VERSION does not invert these tests.
+fn vendored_major_minor() -> (u64, u64) {
+    let mut parts = SCRYER_SCHEMA_VERSION
+        .split('.')
+        .map(|p| p.parse().expect("numeric version component"));
+    (parts.next().unwrap(), parts.next().unwrap())
+}
+
+/// The vendored major.minor with a patch scryer has not released.
+fn same_minor_version() -> String {
+    let (major, minor) = vendored_major_minor();
+    format!("{major}.{minor}.999")
+}
+
+/// The minor release after the vendored one.
+fn next_minor_version() -> String {
+    let (major, minor) = vendored_major_minor();
+    format!("{major}.{}.0", minor + 1)
+}
+
 #[test]
 fn version_same_minor_ok() {
-    assert!(check_version("0.22.9"));
+    assert!(check_version(&same_minor_version()));
 }
 
 #[test]
 fn version_new_minor_mismatch() {
-    assert!(!check_version("0.23.0"));
+    assert!(!check_version(&next_minor_version()));
 }
 
 async fn get_text(
@@ -74,17 +96,25 @@ async fn status_with_version(version: &str) -> String {
     get_text(&st, "/metrics", None).await.1
 }
 
+/// The mismatch gauge's sample value. Matching whole lines matters: the
+/// gauge's `# HELP` text itself reads "scryarr_scryer_version_mismatch 1 when
+/// ...", so a substring search for the sample finds the help line instead.
+fn mismatch_gauge(body: &str) -> Option<&str> {
+    body.lines()
+        .find_map(|l| l.strip_prefix("scryarr_scryer_version_mismatch "))
+}
+
 #[tokio::test]
 async fn mismatched_version_sets_gauge() {
-    let body = status_with_version("0.23.0").await;
-    assert!(body.contains("scryarr_scryer_version_mismatch 1"), "{body}");
+    let body = status_with_version(&next_minor_version()).await;
+    assert_eq!(mismatch_gauge(&body), Some("1"), "{body}");
     assert!(body.contains(r#"flavor="radarr""#));
 }
 
 #[tokio::test]
 async fn matching_version_clears_gauge() {
-    let body = status_with_version("0.22.9").await;
-    assert!(body.contains("scryarr_scryer_version_mismatch 0"), "{body}");
+    let body = status_with_version(&same_minor_version()).await;
+    assert_eq!(mismatch_gauge(&body), Some("0"), "{body}");
 }
 
 #[tokio::test]
