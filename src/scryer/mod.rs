@@ -9,7 +9,7 @@ use crate::metrics::Metrics;
 
 pub use views::{CollectionKind, EpisodeView, ListedTitle, MediaFile, Season, Title, TitleDetail};
 
-pub const SCRYER_SCHEMA_VERSION: &str = "0.23.0";
+pub const SCRYER_SCHEMA_VERSION: &str = "0.23.1";
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ApiKey(pub String);
