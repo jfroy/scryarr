@@ -35,7 +35,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.100.0
+          toolchain: 1.100.1
 
       - uses: release-plz/action@v0.5
         with:
@@ -64,7 +64,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.100.0
+          toolchain: 1.100.1
 
       - id: plz
         uses: release-plz/action@v0.5
