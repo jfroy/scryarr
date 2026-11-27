@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5](https://github.com/jfroy/scryarr/compare/v0.2.4...v0.2.5) - 2026-11-27
+
+### Other
+
+- *(deps)* update rust to v1.100.1 ([#31](https://github.com/jfroy/scryarr/pull/31))
+- *(deps)* update rust:1.100.0-bookworm docker digest to 75d26c2 ([#30](https://github.com/jfroy/scryarr/pull/30))
+- *(deps)* update sigstore/cosign-installer action to v4.1.4 ([#29](https://github.com/jfroy/scryarr/pull/29))
+- *(deps)* update rust:1.100.0-bookworm docker digest to 1b9dc70 ([#27](https://github.com/jfroy/scryarr/pull/27))
+
 ## [0.2.4](https://github.com/jfroy/scryarr/compare/v0.2.3...v0.2.4) - 2026-11-24
 
 ### Other
