@@ -71,7 +71,7 @@ jobs:
       - if: steps.scryer.outputs.changed == 'true'
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.100.0
+          toolchain: 1.100.1
           components: rustfmt, clippy
 
       - if: steps.scryer.outputs.changed == 'true'
